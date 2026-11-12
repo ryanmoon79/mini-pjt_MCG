@@ -74,12 +74,15 @@ def reconstruct_file(file: dp.FileDiff) -> tuple[str, bool]:
     return "\n".join(lines) + "\n", complete
 
 
-def run_ruff(file: dp.FileDiff) -> list[dict]:
+def run_ruff(file: dp.FileDiff, settings=None) -> list[dict]:
     """파일 하나에 ruff를 돌려 **변경된 줄**의 위반만 돌려줍니다.
 
     파일 일부만 보이는 diff에서는 파일 전체를 봐야 하는 pyflakes(F)와
     import 정렬(I) 규칙이 가짜 위반을 내므로 제외합니다.
+    `settings`(config.ReviewSettings)가 저장소 ruff 설정을 가리키면 그 설정으로,
+    없으면 CiteReview `ruff.toml`로 검사합니다 (평가는 항상 기본값).
     """
+    settings = settings or config.DEFAULT_SETTINGS
     text, complete = reconstruct_file(file)
     if not text:
         return []
@@ -89,7 +92,7 @@ def run_ruff(file: dp.FileDiff) -> list[dict]:
         "ruff",
         "check",
         "--config",
-        str(config.RUFF_CONFIG_PATH),
+        str(settings.ruff_config),
         "--output-format",
         "json",
         "--stdin-filename",
@@ -104,7 +107,7 @@ def run_ruff(file: dp.FileDiff) -> list[dict]:
         capture_output=True,
         text=True,
         encoding="utf-8",
-        cwd=config.ROOT_DIR,
+        cwd=settings.ruff_cwd,
     )
     changed = dp.changed_lines(file)
     findings = []
@@ -138,7 +141,9 @@ def chunk_to_dict(doc) -> dict:
     }
 
 
-def build_tools(diff_files: list[dp.FileDiff], retriever, log: ToolLog) -> list:
+def build_tools(
+    diff_files: list[dp.FileDiff], retriever, log: ToolLog, settings=None
+) -> list:
     """리뷰 한 건의 diff에 묶인 도구 목록을 만듭니다.
 
     Args:
@@ -146,6 +151,7 @@ def build_tools(diff_files: list[dp.FileDiff], retriever, log: ToolLog) -> list:
         retriever: `src.retriever.HybridRetriever`
             (테스트에서는 가짜 임베딩으로 만든 것)
         log: 도구 호출·출력을 기록할 `ToolLog`
+        settings: 적용할 리뷰 기준(config.ReviewSettings). None이면 기본값.
     """
     by_path = {f.path: f for f in diff_files}
 
@@ -163,7 +169,7 @@ def build_tools(diff_files: list[dp.FileDiff], retriever, log: ToolLog) -> list:
         """
         log.record("ruff_check", {"file": file})
         targets = [by_path[file]] if file in by_path else list(by_path.values())
-        findings = [f for target in targets for f in run_ruff(target)]
+        findings = [f for target in targets for f in run_ruff(target, settings)]
         log.ruff_findings.extend(findings)
         return json.dumps(findings, ensure_ascii=False) if findings else "위반 없음"
 

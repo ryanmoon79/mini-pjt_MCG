@@ -162,3 +162,78 @@ def test_long_fix_is_truncated_to_five_lines():
     text = render_review(review, files, title="t")
     assert sum(1 for ln in text.splitlines() if ln.startswith("     + ")) == 5
     assert "…(전체는 --verbose)" in text
+
+
+# ── 2부: 고치는 방법 들여쓰기, 줄 길이(E501) 묶음 ─────────────────────────
+
+
+def _files_03():
+    return dp.parse_diff(
+        (config.EVAL_DIFFS_DIR / "03_llmchain.diff").read_text(encoding="utf-8")
+    )
+
+
+def _style(line, rule_ids, suggestion="s"):
+    return {
+        "issue_type": "style",
+        "file": "app/chain.py",
+        "line": line,
+        "severity": "low",
+        "message": "m",
+        "evidence": [
+            {"type": "tool", "source": "ruff", "rule_id": r} for r in rule_ids
+        ],
+        "suggestion": suggestion,
+    }
+
+
+def test_fix_plus_lines_take_indent_of_minus_line():
+    """+ 줄 전체에 - 줄의 들여쓰기를 붙임 (+ 줄끼리 상대 들여쓰기 유지)."""
+    files = _files_03()
+    original = dp.new_side_lines(files[0])[24]  # 들여쓰기 4칸인 함수 본문 줄
+    assert original.startswith("    ") and not original.startswith("     ")
+    review = Review(
+        summary=[f"요약 {i}" for i in range(1, 6)],
+        findings=[
+            {
+                "issue_type": "bug",
+                "file": "app/chain.py",
+                "line": 24,
+                "severity": "high",
+                "message": "m",
+                "evidence": [{"type": "code", "source": "app/chain.py:24"}],
+                "suggestion": "```python\n        if x:\n            y = 1\n```",
+            }
+        ],
+    )
+    lines = render_review(review, files, title="t").splitlines()
+    assert f"     - {original.rstrip()}" in lines
+    assert "     +     if x:" in lines  # LLM이 준 8칸은 걷어 내고 원래 줄의 4칸
+    assert "     +         y = 1" in lines  # 상대 들여쓰기(4칸) 유지
+
+
+def test_line_length_findings_are_grouped_per_file():
+    """파일별 E501은 한 항목으로 묶고 코드 줄·주석으로 나누며 수정안은 없음."""
+    from src.render import ordered_items
+
+    files = _files_03()
+    review = Review(
+        summary=[f"요약 {i}" for i in range(1, 6)],
+        findings=[
+            _style(23, ["ruff:E501", "PEP8-maximum-line-length"], "```python\nx\n```"),
+            _style(24, ["ruff:E501"], "```python\ny\n```"),
+            _style(17, ["ruff:E711"]),
+        ],
+    )
+    lengths = {("app/chain.py", 23): (95, 88), ("app/chain.py", 24): (91, 88)}
+    text = render_review(review, files, title="t", line_lengths=lengths)
+    lines = text.splitlines()
+    assert "app/chain.py · 줄 길이 초과 2줄 · low" in text
+    assert "   코드 줄: 24 (91)" in lines
+    assert "   주석·docstring: 23 (95)" in lines  # 23행은 docstring 줄
+    block = text.split("줄 길이 초과 2줄", 1)[1].split("\n\n", 1)[0]
+    assert "고치는 방법" not in block and "저장소 자체 ruff 설정" in block
+    items = ordered_items(review)
+    assert [len(it) for it in items] == [1, 2]  # E711 1건 + E501 묶음(2건)
+    assert "지적 2건" in text
+    assert len(review.findings) == 3  # Review JSON에는 개별 지적이 그대로 남음

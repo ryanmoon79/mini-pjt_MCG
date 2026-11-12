@@ -32,6 +32,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from src import config  # noqa: E402
+from src import diff_parser as dp  # noqa: E402
 from src.agent import extract_diff_path, run_query  # noqa: E402
 from src.guardrails import (  # noqa: E402
     PII_PATTERNS,
@@ -45,6 +46,11 @@ from src.observability import duration_ms  # noqa: E402
 CSV_PATH = ROOT / "evaluation" / "test_queries.csv"
 MAIN_SET_MAX_ID = 20  # 본 세트 1~20번. 21번부터는 추가 세트(함정 케이스)
 JUDGE_MODEL_ID = "us.amazon.nova-pro-v1:0"
+# --core: 토큰 한도가 빠듯할 때 돌리는 핵심 케이스 (2차와 비교용 조건 A)
+# 2 initialize_agent, 3 LLMChain, 4 긴 줄, 14 300줄 경계, 15 .md 혼합,
+# 17 같은 줄 여러 이슈, 19 인젝션 — D1~D6에서 바뀐 동작(E501·요약·인젝션 등급·
+# classic 권장)이 드러나는 케이스
+CORE_CASES = ("2", "3", "4", "14", "15", "17", "19")
 NEAR_LINES = 3  # "N행 부근" = 같은 파일 N±3줄
 ID_RE = re.compile(
     r"(PEP8-[a-z-]+|DEP-[A-Za-z_]+|ruff:[A-Z]\d+|(?:secret|pii|injection)-scanner:[a-z-]+)"
@@ -75,10 +81,17 @@ def is_exec_error(out: dict) -> bool:
     return any(w in t for t in texts for w in THROTTLE_WORDS)
 
 
-def run_case(case: dict, retriever, retries: int = 3) -> dict:
-    """케이스 하나를 실행합니다. 호출 한도 오류는 점점 길게 기다렸다가 재시도합니다."""
+def run_case(
+    case: dict, retriever, review_model_id: str | None = None, retries: int = 3
+) -> dict:
+    """케이스 하나를 실행합니다. 호출 한도 오류는 점점 길게 기다렸다가 재시도합니다.
+
+    `review_model_id`: 리뷰 모델(`config.REVIEW_MODELS` 값). None이면 기본 모델.
+    시도마다 모델 객체를 새로 만듭니다 (`run_query`가 llm=None일 때와 같은 동작).
+    """
     for attempt in range(retries):
-        out = run_query(case["input"], retriever=retriever)
+        llm = config.get_llm(review_model_id) if review_model_id else None
+        out = run_query(case["input"], retriever=retriever, llm=llm)
         if not is_exec_error(out):
             return out
         time.sleep(20 * (attempt + 1))
@@ -486,6 +499,162 @@ def alignment_summary(rows: list[dict]) -> dict:
     return total
 
 
+def summary_replacement(traces: list[list[dict]]) -> dict:
+    """요약 LLM 줄(change=1줄, action=5줄)이 코드 문장으로 대체된 비율.
+
+    trace의 `stage="summary"` 이벤트(`replaced`)를 셉니다. 분모는 요약까지 간 케이스
+    (거절·실패 케이스는 요약이 없어 빼고 셉니다). 재생성으로 고쳐진 경우는 대체가
+    아니므로 `regenerated`로 따로 셉니다.
+    """
+    events = [
+        e
+        for t in traces
+        for e in t
+        if e["type"] == "guardrail" and e.get("stage") == "summary"
+    ]
+    n = len(events)
+    out: dict = {"cases": n}
+    for key in ("change", "action"):
+        count = sum(key in e.get("replaced", []) for e in events)
+        out[key] = {"replaced": count, "rate": round(count / n, 3) if n else None}
+    out["regenerated"] = sum(e.get("attempts", 1) > 1 for e in events)
+    return out
+
+
+def usage_summary(traces: list[list[dict]]) -> dict:
+    """역할별 토큰·호출 수 합계와 케이스당 평균 (trace `usage` 이벤트).
+
+    역할 이름: supervisor, bug_reviewer, style_reviewer, `<리뷰어>:finalize`(보완 단계),
+    suggestion_fix(고치는 방법 재생성), synthesize, synthesize:retry(종합 재생성),
+    기타(역할 표시 없는 호출). 보완·재생성 토큰은 이름으로 따로 셉니다.
+    """
+    events = [e for t in traces for e in t if e["type"] == "usage"]
+    keys = ("calls", "input_tokens", "output_tokens")
+    by_role: dict[str, dict[str, int]] = {}
+    for e in events:
+        for role, row in e.get("by_role", {}).items():
+            acc = by_role.setdefault(role, dict.fromkeys(keys, 0))
+            for k in keys:
+                acc[k] += row.get(k, 0)
+    total = {k: sum(r[k] for r in by_role.values()) for k in keys}
+    with_llm = [e for e in events if e.get("total", {}).get("calls")]
+    n = len(with_llm)
+    return {
+        "cases_with_llm": n,
+        "total": total,
+        "per_case_avg": {k: round(total[k] / n) for k in keys} if n else None,
+        "by_role": dict(sorted(by_role.items())),
+    }
+
+
+def structured_summary(traces: list[list[dict]]) -> dict:
+    """리뷰어 결과를 어떻게 받았는지: agent(결과 도구) / finalize(보완) / none(실패).
+
+    전체 분포, 리뷰어별 분포, 리뷰어별 none 횟수(화면에 "결과 없음(확인 못 함)"이
+    표시된 횟수)와 none이 나온 케이스 수를 돌려줍니다.
+    """
+    total: dict[str, int] = {}
+    by_reviewer: dict[str, dict[str, int]] = {}
+    none_cases = 0
+    for t in traces:
+        had_none = False
+        for e in t:
+            if e["type"] != "reviewer":
+                continue
+            key = str(e.get("structured", "unknown"))
+            total[key] = total.get(key, 0) + 1
+            row = by_reviewer.setdefault(e["name"], {})
+            row[key] = row.get(key, 0) + 1
+            had_none = had_none or key == "none"
+        none_cases += had_none
+    return {
+        "total": total,
+        "by_reviewer": dict(sorted(by_reviewer.items())),
+        "none_by_reviewer": {
+            name: row.get("none", 0) for name, row in sorted(by_reviewer.items())
+        },
+        "cases_with_none": none_cases,
+    }
+
+
+def structured_by_size(results: list[tuple[dict, dict, dict]]) -> list[dict]:
+    """케이스별 리뷰어 결과 수집 방식과 diff 크기 (큰 diff에서 none이 느는지 보기용).
+
+    크기: `.py` 추가·삭제 줄 수(입력 가드레일과 같은 계산)와 리뷰어별 입력 토큰
+    (trace `usage`의 그 리뷰어 역할 값, 보완 단계는 따로). 줄 수 순으로 정렬합니다.
+    """
+    rows = []
+    for c, o, _ in results:
+        trace = o["trace"]
+        status = {
+            e["name"]: e.get("structured") for e in trace if e["type"] == "reviewer"
+        }
+        if not status:
+            continue
+        usage = next((e for e in trace if e["type"] == "usage"), {}) or {}
+        roles = usage.get("by_role", {})
+        diff_text = extract_diff_path(c["input"]).read_text("utf-8")
+        rows.append(
+            {
+                "id": c["id"],
+                "py_lines": dp.py_changed_line_count(dp.parse_diff(diff_text)),
+                "structured": status,
+                "reviewer_input_tokens": {
+                    name: roles.get(name, {}).get("input_tokens") for name in status
+                },
+                "reviewer_calls": {
+                    name: roles.get(name, {}).get("calls") for name in status
+                },
+            }
+        )
+    return sorted(rows, key=lambda r: r["py_lines"])
+
+
+def syntax_rescued(case: dict, out: dict, diff_text: str) -> bool:
+    """출력 검증 ④(파싱 실패 주장 제거) 때문에 통과했는지 (반사실 판정).
+
+    제거된 지적을 Review JSON에 되돌린 결과를 **코드 판정 항목만으로** 다시 채점해,
+    통과였던 항목이 실패로 바뀌면 True. 화면 문장(answer)은 다시 만들 수 없으므로
+    LLM 판정 항목은 비교하지 않습니다 (evaluation/README.md 한계).
+    """
+    dropped = (_output_event(out["trace"]) or {}).get("syntax_dropped") or []
+    if not dropped or _review(out) is None:
+        return False
+    import copy
+
+    cf = copy.deepcopy(out)
+    for e in cf["trace"]:
+        if e["type"] == "review":
+            e["review"]["findings"] += [d["finding"] for d in dropped]
+
+    def code_items(o):
+        v = judge_case(case, o, diff_text, use_llm=False)
+        return {i["text"]: i["ok"] for i in v["items"] if i.get("method") == "code"}
+
+    before, after = code_items(out), code_items(cf)
+    return any(ok and not after.get(text, True) for text, ok in before.items())
+
+
+def syntax_summary(results: list[tuple[dict, dict, dict]]) -> dict:
+    """파싱 실패 주장 검증 집계: 제거 수, 유지 수, 그 제거 덕분에 통과한 케이스."""
+    dropped = kept = 0
+    rescued: list[str] = []
+    for c, o, v in results:
+        ev = _output_event(o["trace"]) or {}
+        dropped += len(ev.get("syntax_dropped") or [])
+        kept += len(ev.get("syntax_kept") or [])
+        if v["passed"] and ev.get("syntax_dropped"):
+            diff_text = extract_diff_path(c["input"]).read_text("utf-8")
+            if syntax_rescued(c, o, diff_text):
+                rescued.append(c["id"])
+    return {
+        "dropped": dropped,
+        "kept": kept,
+        "passed_because_dropped": len(rescued),
+        "passed_because_dropped_ids": rescued,
+    }
+
+
 def evidence_counts(trace: list[dict]) -> tuple[int, int]:
     """(출력 검증 통과 지적 수, 출력 검증 전 지적 수)."""
     ev = _output_event(trace)
@@ -608,6 +777,14 @@ def set_summary(results: list[tuple[dict, dict, dict]]) -> dict:
             "avg": round(sum(times) / len(times)) if times else 0,
             "max": max(times, default=0),
         },
+        # 요약 1줄·5줄(LLM)이 규칙 위반으로 코드 문장으로 바뀐 비율 (3차 평가부터)
+        "summary_replaced": summary_replacement([o["trace"] for _, o, _ in results]),
+        # 리뷰어 결과 수집 방식(agent/finalize/none)과 역할별 토큰 (다음 버전부터)
+        "structured": structured_summary([o["trace"] for _, o, _ in results]),
+        "structured_by_size": structured_by_size(results),
+        "usage": usage_summary([o["trace"] for _, o, _ in results]),
+        # 출력 검증 ④: 파싱 실패 주장 제거 수와 그 제거 덕분에 통과한 케이스
+        "syntax": syntax_summary(results),
     }
 
 
@@ -616,7 +793,22 @@ def main(argv=None) -> int:
     parser.add_argument("--cases", help="쉼표로 구분한 케이스 id (예: 3,4,10)")
     parser.add_argument("--category", help="positive|negative|edge|guardrail")
     parser.add_argument("--workers", type=int, default=2, help="동시 실행 수")
-    parser.add_argument("--run-id", default=datetime.now().strftime("%Y%m%d-%H%M%S"))
+    parser.add_argument(
+        "--run-id",
+        default=datetime.now().strftime("%Y%m%d-%H%M%S"),
+        help="실행 기록 폴더 이름. 끝에 리뷰 모델 이름(-gpt-oss / -haiku)이 붙습니다",
+    )
+    parser.add_argument(
+        "--review-model",
+        choices=sorted(config.REVIEW_MODELS),
+        default=None,
+        help="리뷰 모델 (평가 실행에는 필수, 판정기는 항상 Nova Pro)",
+    )
+    parser.add_argument(
+        "--core",
+        action="store_true",
+        help=f"핵심 케이스만 ({','.join(CORE_CASES)}) — 토큰 한도가 빠듯할 때",
+    )
     parser.add_argument("--no-judge", action="store_true", help="LLM 판정 생략")
     parser.add_argument(
         "--rejudge", metavar="RUN_ID", help="저장된 실행 기록을 현재 판정기로 다시 채점"
@@ -635,12 +827,41 @@ def main(argv=None) -> int:
         return backfill_ruff(args.backfill_ruff, cases)
     if args.rejudge:
         return rejudge(args.rejudge, cases, use_llm=not args.no_judge)
-    if args.cases:
-        wanted = {c.strip() for c in args.cases.split(",")}
+    # 재채점·ruff 채우기는 모델을 부르지 않으므로 필요 없고, 평가 실행에는 필수
+    # (어떤 모델로 돌렸는지 빠뜨린 실행 기록이 생기지 않게 실행 전에 막음)
+    if args.review_model is None:
+        parser.error(
+            "--review-model을 지정하세요: " + " | ".join(sorted(config.REVIEW_MODELS))
+        )
+    if args.cases and args.core:
+        parser.error("--cases와 --core는 함께 쓸 수 없습니다")
+    if args.cases or args.core:
+        wanted = set(CORE_CASES) if args.core else set(args.cases.split(","))
+        wanted = {c.strip() for c in wanted}
         cases = [c for c in cases if c["id"] in wanted]
     if args.category:
         cases = [c for c in cases if c["category"] == args.category]
-    run_dir = config.RUNS_DIR / args.run_id
+    # 리뷰 모델을 폴더 이름과 기록에 남겨 조건(A: haiku / B: gpt-oss)을 구분
+    model_key = args.review_model
+    review_model_id = config.REVIEW_MODELS[model_key]
+    run_id = args.run_id
+    if not run_id.endswith(f"-{model_key}"):
+        run_id = f"{run_id}-{model_key}"
+    run_dir = config.RUNS_DIR / run_id
+    meta = {
+        "run_id": run_id,
+        "review_model": {"key": model_key, "id": review_model_id},
+        "judge_model": JUDGE_MODEL_ID if not args.no_judge else None,
+        "case_filter": "core" if args.core else (args.cases or args.category or "all"),
+        "case_ids": [c["id"] for c in cases],
+        "started_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "run_meta.json").write_text(  # 중간에 끊겨도 조건이 남도록 먼저 기록
+        json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print(f"리뷰 모델: {model_key} ({review_model_id}) · 판정: {meta['judge_model']}")
+    print(f"케이스 {len(cases)}건 · 실행 기록: {run_dir}")
 
     from src.retriever import build_retriever
 
@@ -653,7 +874,7 @@ def main(argv=None) -> int:
         """
         try:
             diff_text = extract_diff_path(case["input"]).read_text(encoding="utf-8")
-            out = run_case(case, retriever)
+            out = run_case(case, retriever, review_model_id)
             verdict = judge_case(case, out, diff_text, use_llm=not args.no_judge)
             save_case(run_dir, case, out, diff_text, verdict)
         except Exception as exc:  # 케이스 단위 격리
@@ -688,7 +909,11 @@ def main(argv=None) -> int:
     main_set = [r for r in results if is_main_set(r[0])]
     extra_set = [r for r in results if not is_main_set(r[0])]
     summary = {
-        "run_id": args.run_id,
+        "run_id": run_id,
+        # 어떤 모델로 돌렸는지 (round3_report.md의 조건 A/B 구분)
+        "review_model": meta["review_model"],
+        "judge_model": meta["judge_model"],
+        "case_filter": meta["case_filter"],
         "workers": args.workers,
         "wall_seconds": wall_seconds,
         "wall_time": f"{int(wall_seconds // 60)}분 {int(wall_seconds % 60)}초",

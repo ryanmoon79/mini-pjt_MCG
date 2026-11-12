@@ -25,7 +25,8 @@ from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph_supervisor import create_supervisor
 
 from src import diff_parser as dp
-from src.guardrails import masking_middleware
+from src.guardrails import mask_messages, masking_middleware
+from src.observability import ROLE_KEY
 from src.schema import Finding, ReviewerFindings
 
 BUG = "bug_reviewer"
@@ -56,6 +57,9 @@ _COMMON_RULES = """\
 - line은 아래 diff 왼쪽에 붙은 **변경 후 줄 번호**를 그대로 씁니다.
   변경된 줄(+)만 지적합니다.
 - message는 "무엇이 문제인가 + 왜 문제인가"를 한두 문장으로 씁니다.
+- message와 suggestion의 설명 문장은 **한국어**로 씁니다 (코드·API 이름은 그대로).
+- 마지막에는 반드시 ReviewerFindings 도구를 한 번 호출해 결과를 냅니다.
+  일반 문장으로 답을 끝내지 마세요.
 - suggestion은 고치는 방법입니다.
   코드로 고칠 수 있으면 ```python 블록에 **고친 줄만** 넣습니다.
   함수 전체를 다시 쓰지 마세요. 지적한 줄을 대신할 1~3줄이면 충분합니다.
@@ -81,6 +85,9 @@ BUG_PROMPT = f"""당신은 LangChain/LangGraph 1.x Python 코드 리뷰어
   search_evidence로 매핑표를 찾아 doc 근거로 인용하고, 제거된 API면 bug로 지적합니다.
 - 논리 버그(None 처리, 경계값, 빈 입력 등)는 code 근거로 지적합니다.
 - 검증 없는 eval·exec, shell=True subprocess 같은 위험은 security로 지적합니다.
+- 예외 처리(빈 except, 삼킨 예외, 실패 시 None을 그대로 쓰는 코드)를 확인합니다.
+- **논리 버그, deprecated API, 예외 처리, 보안에 집중합니다.** 줄 길이·포맷 같은
+  스타일은 지적하지 않습니다.
 
 {_COMMON_RULES}"""
 
@@ -89,6 +96,8 @@ STYLE_PROMPT = f"""당신은 LangChain/LangGraph 1.x Python 코드 리뷰어(스
 - 먼저 ruff_check를 호출합니다. 위반마다 tool 근거(rule_id "ruff:<코드>")를 붙이고,
   결과에 pep8_rule_id가 있으면 search_evidence로 그 PEP 8 섹션을 찾아
   doc 근거도 붙입니다.
+- **줄 길이(ruff:E501)는 지적하지 않습니다.** ruff 결과로 코드가 직접 표시합니다.
+  줄 길이 숫자를 직접 세거나 쓰지 마세요.
 - 경고만 나고 동작하는 deprecated API(langgraph.prebuilt.create_react_agent,
   langchain_classic 사용)는 search_evidence로 매핑표를 찾아 style로 지적합니다.
 
@@ -150,20 +159,60 @@ def _task_message(numbered_diff: str, files: list[str]) -> str:
     )
 
 
-def _wrap_reviewer(agent, name: str, task: str, collector: dict, trace):
+FINALIZE_REQUEST = (
+    "지금까지의 리뷰 결과를 ReviewerFindings 형식으로만 답하세요. "
+    "새 도구는 부르지 말고, 지적이 없으면 빈 목록으로 답합니다."
+)
+
+
+def _finalize(model, messages: list, name: str) -> ReviewerFindings | None:
+    """리뷰어가 결과 도구(ReviewerFindings)를 부르지 않고 끝났을 때의 보완 단계.
+
+    gpt-oss는 tool_choice="any"를 받아도 강제하지 않아 결과 도구를 건너뛸 때가 있습니다.
+    리뷰어의 대화 기록(마스킹 후)을 그대로 주고 구조화 출력으로 한 번만 더 묻습니다.
+    실패하면 None (지적 0건으로 처리하고 trace에 남김).
+    """
+    try:
+        chain = model.with_structured_output(ReviewerFindings)
+        return chain.invoke(
+            mask_messages(list(messages) + [HumanMessage(content=FINALIZE_REQUEST)]),
+            config={"metadata": {ROLE_KEY: f"{name}:finalize"}},  # 토큰 따로 집계
+        )
+    except Exception:  # 형식 오류도 보완 실패로 봄
+        return None
+
+
+def _wrap_reviewer(
+    agent, model, name: str, task: str, collector: dict, trace, status: dict
+):
     """리뷰어를 supervisor가 부를 수 있는 그래프로 감쌉니다.
 
     supervisor에게는 "지적 N건 기록" 메시지만 돌려주고,
-    구조화 결과는 collector에 모읍니다
-    (supervisor 대화 기록에서 구조화 출력을 다시 파싱하지 않기 위해).
+    구조화 결과는 collector에, 결과를 받은 방식(agent/finalize/none)은 status에
+    모읍니다 (supervisor 대화 기록에서 구조화 출력을 다시 파싱하지 않기 위해).
     """
 
     def run(state: MessagesState) -> dict:
-        out = agent.invoke({"messages": [HumanMessage(content=task)]})
-        result = out.get("structured_response") or ReviewerFindings()
+        out = agent.invoke(
+            {"messages": [HumanMessage(content=task)]},
+            config={"metadata": {ROLE_KEY: name}},  # 토큰을 리뷰어별로 집계
+        )
+        structured = out.get("structured_response")
+        source = "agent"
+        if structured is None:
+            structured = _finalize(model, out["messages"], name)
+            source = "finalize" if structured is not None else "none"
+        result = structured or ReviewerFindings()
         collector[name] = list(result.findings)
+        status[name] = source
         if trace is not None:
-            trace.add("reviewer", name=name, findings=len(result.findings))
+            # structured: agent(결과 도구 호출) / finalize(보완 단계) / none(실패, 0건)
+            trace.add(
+                "reviewer",
+                name=name,
+                findings=len(result.findings),
+                structured=source,
+            )
         msg = f"{name}: 지적 {len(result.findings)}건을 기록했습니다."
         return {"messages": [AIMessage(content=msg, name=name)]}
 
@@ -180,18 +229,27 @@ def run_review_team(
     tools: list,
     models: dict,
     trace=None,
+    status: dict[str, str] | None = None,
 ) -> dict[str, list[Finding]]:
     """supervisor로 계획된 리뷰어를 실행하고, 리뷰어별 지적 목록을 돌려줍니다.
 
     Args:
         models: {"supervisor": ..., "bug_reviewer": ..., "style_reviewer": ...}
+        status: 주면 리뷰어별 결과 수집 방식(agent/finalize/none)을 채웁니다.
     """
+    status = {} if status is None else status
     scope = [f for f in py_files if f.path in plan.files]
     task = _task_message(dp.numbered_text(scope), plan.files)
     collector: dict[str, list[Finding]] = {}
     workers = {
         name: _wrap_reviewer(
-            build_reviewer(models[name], tools, name), name, task, collector, trace
+            build_reviewer(models[name], tools, name),
+            models[name],
+            name,
+            task,
+            collector,
+            trace,
+            status,
         )
         for name in plan.reviewers
     }
@@ -200,7 +258,8 @@ def run_review_team(
     ).compile()
     request = f"다음 리뷰어에게 순서대로 한 번씩 넘기세요: {', '.join(plan.reviewers)}"
     supervisor.invoke(
-        {"messages": [HumanMessage(content=request)]}, config={"recursion_limit": 25}
+        {"messages": [HumanMessage(content=request)]},
+        config={"recursion_limit": 25, "metadata": {ROLE_KEY: "supervisor"}},
     )
     # supervisor가 빠뜨린 리뷰어는 코드가 직접 실행 (계획 실행 보장)
     for name in plan.reviewers:

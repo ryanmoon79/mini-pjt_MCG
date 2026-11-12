@@ -122,6 +122,53 @@ _SEVERITY = {
 }
 
 
+# ── 인젝션 문장 등급 (리뷰 도구를 부르는 명령문만 medium) ─────────────────
+# 리뷰 도구·AI를 부르는 말 (이 말이 함께 있어야 "리뷰 도구를 향한 지시"로 봄)
+INJECTION_ADDRESSEE = re.compile(
+    # AI·LLM은 영문자 경계만 봄 ("AI에게"처럼 한글이 바로 붙어도 잡히게; \b는 한글을
+    # 단어 문자로 봐서 놓침)
+    r"(?i)(리뷰\s*(도구|봇|어)|코드\s*리뷰어|review(er|\s+(tool|bot))"
+    r"|(?<![A-Za-z])AI(?![A-Za-z])|assistant|어시스턴트|(?<![A-Za-z])LLM(?![A-Za-z])"
+    r"|언어\s*모델|모델에게|에이전트에게|CiteReview)"
+)
+_QUOTED = re.compile(r"\"[^\"]*\"|'[^']*'|“[^”]*”|‘[^’]*’")
+# 정규식 패턴 목록·탐지 설명 맥락 (인젝션을 막는 코드가 예시 문장을 담는 곳)
+_PATTERN_CONTEXT = re.compile(
+    r"(?i)(re\.compile|정규식|패턴|탐지|차단|막기|막는|regex|pattern|detect)"
+)
+INJECTION_NOTE_MESSAGE = (
+    "참고: 인젝션 예시 문장 포함 ({name}). "
+    "따옴표·정규식 패턴·탐지 설명 안의 문장이거나 "
+    "리뷰 도구를 부르는 말이 없어, 리뷰 도구를 향한 지시로 판정하지 않았습니다."
+)
+INJECTION_NOTE_SUGGESTION = (
+    "탐지·차단용 예시라면 고칠 필요가 없습니다. 실제로 도구에 내리는 지시라면 지우세요."
+)
+
+
+def injection_grade(text: str, span: tuple[int, int]) -> str:
+    """인젝션 문장 한 곳의 등급: "addressed"(security medium) 또는 "example"(참고 low).
+
+    - 맞은 문장이 따옴표 안에 있거나, 그 줄이 정규식·탐지 설명 맥락이면 "example"
+    - 리뷰 도구·AI를 부르는 말이 같은 줄에 있는 명령문만 "addressed"
+    결정적 규칙이라 처음 보는 형태는 놓칠 수 있습니다 (README 남은 한계).
+    승인·게시는 그래프 코드가 강제하므로 등급과 관계없이 무단 게시는 불가합니다.
+    """
+    start, end = span
+    if any(q.start() <= start and end <= q.end() for q in _QUOTED.finditer(text)):
+        return "example"
+    if _PATTERN_CONTEXT.search(text):
+        return "example"
+    return "addressed" if INJECTION_ADDRESSEE.search(text) else "example"
+
+
+def is_injection_note(finding: Finding) -> bool:
+    """참고(low) 등급의 인젝션 지적인지 (꼭 고칠 것·요약에서 제외할 대상)."""
+    return finding.severity == "low" and any(
+        (e.rule_id or "").startswith("injection-scanner:") for e in finding.evidence
+    )
+
+
 def _scanner_finding(scanner: str, name: str, file: str, line: int) -> Finding:
     return Finding(
         issue_type="security",
@@ -151,10 +198,11 @@ class InputCheck:
         return "\n".join(f.text() for f in self.py_files)
 
 
-def check_input(diff_text: str) -> InputCheck:
+def check_input(diff_text: str, max_lines: int | None = None) -> InputCheck:
     """diff를 검사하고 마스킹합니다 (그래프 맨 앞 노드가 부름).
 
-    1. 파일을 `.py`와 나머지로 나누고, `.py`가 없거나 300줄을 넘으면 거절
+    1. 파일을 `.py`와 나머지로 나누고, `.py`가 없거나 변경 한도를 넘으면 거절
+       (`max_lines`가 없으면 기본 300줄, 평가는 항상 기본값)
     2. 모든 줄의 비밀값·개인정보를 가리고, 보이는 줄(추가·문맥)마다 security 지적 생성
     3. 알려진 인젝션 문장 위치마다 security 지적 생성 (가리지는 않음)
     """
@@ -168,11 +216,12 @@ def check_input(diff_text: str) -> InputCheck:
             f" (건너뛴 파일: {', '.join(skipped) or '없음'}).",
             skipped=skipped,
         )
-    if count > config.MAX_PY_CHANGED_LINES:
+    limit = max_lines or config.MAX_PY_CHANGED_LINES
+    if count > limit:
         return InputCheck(
             status="rejected",
             reason=f"`.py` 파일의 추가·삭제 줄 합계가 {count}줄로 "
-            f"{config.MAX_PY_CHANGED_LINES}줄을 넘습니다. diff를 나눠서 리뷰해 주세요.",
+            f"{limit}줄을 넘습니다. diff를 나눠서 리뷰해 주세요.",
             skipped=skipped,
             py_changed_lines=count,
         )
@@ -184,19 +233,110 @@ def check_input(diff_text: str) -> InputCheck:
         for hunk in f.hunks:
             for ln in hunk.lines:
                 for name, pattern in INJECTION_PATTERNS.items():
-                    if pattern.search(ln.text) and ln.new_no is not None:
+                    match = pattern.search(ln.text)
+                    if match and ln.new_no is not None:
                         hit = _scanner_finding(
                             "injection-scanner", name, f.path, ln.new_no
                         )
+                        if injection_grade(ln.text, match.span()) == "example":
+                            hit = hit.model_copy(
+                                update={
+                                    "severity": "low",
+                                    "message": INJECTION_NOTE_MESSAGE.format(name=name),
+                                    "suggestion": INJECTION_NOTE_SUGGESTION,
+                                }
+                            )
                         result.findings.append(hit)
                 ln.text, hits = _mask_line(ln.text)
                 for scanner, name in hits:
                     result.masked[name] = result.masked.get(name, 0) + 1
                     if ln.new_no is not None:
-                        result.findings.append(
-                            _scanner_finding(scanner, name, f.path, ln.new_no)
-                        )
+                        hit = _scanner_finding(scanner, name, f.path, ln.new_no)
+                        # 더미로 표시된 비밀값은 low "참고" (지우지 않음, 마스킹 그대로)
+                        if scanner == "secret-scanner" and _marked_dummy(hunk, ln):
+                            hit = hit.model_copy(
+                                update={
+                                    "severity": "low",
+                                    "message": DUMMY_SECRET_MESSAGE.format(name=name),
+                                    "suggestion": DUMMY_SECRET_SUGGESTION,
+                                }
+                            )
+                        result.findings.append(hit)
     return result
+
+
+# ── 더미로 표시된 비밀값 (인젝션 D2와 같은 방식의 등급 조정) ─────────────────
+
+# 주석 안의 더미 표시. 값(따옴표 안 문자열)은 보지 않음: AWS 문서 예시 키처럼
+# 값에 EXAMPLE이 들어 있어도 진짜 키와 구분할 수 없기 때문 (평가셋 18번은 high 유지).
+DUMMY_MARK_RE = re.compile(
+    r"더미|가짜|예시|샘플|테스트|dummy|example|test|fake|sample", re.IGNORECASE
+)
+DUMMY_SECRET_MESSAGE = (
+    "참고: 더미로 표시된 비밀값({name})입니다. 주석에 더미·예시 표시가 있어 꼭 고칠 "
+    "것에서 뺐지만, 도구는 진짜 키인지 확인하지 못합니다."
+)
+DUMMY_SECRET_SUGGESTION = (
+    "진짜 키라면 바로 폐기·교체하고 환경변수로 옮기세요. 더미라도 키 형식의 값은 "
+    "환경변수나 테스트 픽스처로 분리하는 편이 안전합니다."
+)
+
+
+def _comment_part(text: str) -> str:
+    """줄에서 문자열 밖의 `#` 주석 부분만 (따옴표 안의 `#`·값은 제외)."""
+    quote = ""
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if quote:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == quote:
+                quote = ""
+        elif ch in "\"'":
+            quote = ch
+        elif ch == "#":
+            return text[i + 1 :]
+        i += 1
+    return ""
+
+
+def _marked_dummy(hunk, line) -> bool:
+    """비밀값이 탐지된 줄이 더미로 표시됐는지.
+
+    - 그 줄의 `#` 주석 부분(문자열 밖)에 더미 표시가 있거나
+    - 바로 위 1~2줄이 **주석 줄**(`#`로 시작)이고 거기에 더미 표시가 있으면 True.
+      위로 올라가다 주석 줄이 아니면(코드·빈 줄) 멈춥니다. 삭제된 줄(-)은 건너뜁니다.
+    """
+    if DUMMY_MARK_RE.search(_comment_part(line.text)):
+        return True
+    visible = [x for x in hunk.lines if x.kind != "-"]
+    idx = next((i for i, x in enumerate(visible) if x is line), None)
+    if idx is None:
+        return False
+    for prev in reversed(visible[max(0, idx - 2) : idx]):
+        stripped = prev.text.strip()
+        if not stripped.startswith("#"):
+            break
+        if DUMMY_MARK_RE.search(stripped):
+            return True
+    return False
+
+
+def is_dummy_secret_note(finding: Finding) -> bool:
+    """더미로 표시된 비밀값 "참고"(low)인지 (secret-scanner는 원래 high)."""
+    return finding.severity == "low" and any(
+        (e.rule_id or "").startswith("secret-scanner:") for e in finding.evidence
+    )
+
+
+def is_note(finding: Finding) -> bool:
+    """참고 등급 지적인지 (인젝션 예시 문장·더미 표시 비밀값).
+
+    꼭 고칠 것과 요약에서 제외합니다.
+    """
+    return is_injection_note(finding) or is_dummy_secret_note(finding)
 
 
 # ── 출력 검사: 근거 실재 확인 (SERVICE.md 4번 정책 2) ───────────────────
@@ -339,14 +479,26 @@ def _mask_message(message):
     if isinstance(content, str):
         return message.model_copy(update={"content": mask_text(content)})
     if isinstance(content, list):
-        parts = [
-            {**p, "text": mask_text(p["text"])}
-            if isinstance(p, dict) and isinstance(p.get("text"), str)
-            else p
-            for p in content
-        ]
-        return message.model_copy(update={"content": parts})
+        return message.model_copy(update={"content": [_mask_part(p) for p in content]})
     return message
+
+
+def _mask_part(part):
+    """content 블록 하나를 가립니다.
+
+    일반 text 블록과, gpt-oss가 돌려주는 추론 블록
+    (`{"type": "reasoning_content", "reasoning_content": {"text": ...}}`)의
+    text도 가립니다.
+    """
+    if not isinstance(part, dict):
+        return part
+    if isinstance(part.get("text"), str):
+        part = {**part, "text": mask_text(part["text"])}
+    inner = part.get("reasoning_content")
+    if isinstance(inner, dict) and isinstance(inner.get("text"), str):
+        masked = {**inner, "text": mask_text(inner["text"])}
+        part = {**part, "reasoning_content": masked}
+    return part
 
 
 def masking_middleware():
@@ -359,10 +511,15 @@ def masking_middleware():
 
     class MaskingMiddleware(AgentMiddleware):
         def wrap_model_call(self, request, handler):
-            masked = [_mask_message(m) for m in request.messages]
+            masked = mask_messages(request.messages)
             return handler(request.override(messages=masked))
 
     return MaskingMiddleware()
+
+
+def mask_messages(messages: list) -> list:
+    """메시지 목록 전체를 가립니다 (미들웨어 밖에서 모델을 직접 부를 때도 같은 함수)."""
+    return [_mask_message(m) for m in messages]
 
 
 # ── 출력 검사: 설명 문장 속 langchain_classic 권장 (1차 평가 2번 케이스) ────
@@ -490,3 +647,66 @@ def cross_check_pep8(
             }
         )
     return kept, removed
+
+
+# ── 출력 검사: 파싱 실패를 주장하는 지적 (evaluation/notes/case10) ──
+
+# 파싱 실패(코드가 아예 실행되지 않음)를 주장하는 표현만. "들여쓰기 때문에 return이
+# 루프 안에 있다" 같은 논리 버그 설명은 여기에 걸리지 않습니다.
+PARSE_CLAIM_RE = re.compile(
+    r"SyntaxError|IndentationError|TabError|문법\s*오류|구문\s*오류", re.IGNORECASE
+)
+
+
+def claims_parse_failure(finding: Finding) -> bool:
+    """지적 설명(message)이 파싱 실패(SyntaxError 등)를 주장하는지."""
+    return bool(PARSE_CLAIM_RE.search(finding.message))
+
+
+def verify_syntax_claims(
+    findings: list[Finding], py_files: list[dp.FileDiff]
+) -> tuple[list[Finding], list[dict], list[dict]]:
+    """파싱 실패를 주장하는 지적을 변경 후 파일의 `ast.parse`로 검증합니다 (LLM 없음).
+
+    - 변경 후 파일 전체가 diff에 보이면 다시 만들어 파싱하고, 파싱되면 그 지적은
+      사실이 아니므로 제거합니다.
+    - 파일 일부만 보이면(빠진 줄을 빈 줄로 채우면 들여쓰기가 깨져 가짜 오류가 남)
+      검증할 수 없으므로 지적을 유지하고 "검증 불가"로 기록합니다.
+    - 파싱 실패를 주장하지 않는 지적(논리 버그 등)은 건드리지 않습니다.
+
+    Returns:
+        (유지할 지적, 제거 기록, 검증 불가 기록). 제거 기록에는 평가의 반사실
+        판정(이 지적이 남았다면 실패했을까)을 위해 지적 전체(마스킹 후)를 남깁니다.
+    """
+    import ast
+
+    from src.tools import reconstruct_file
+
+    by_path = {f.path: f for f in py_files}
+    kept, dropped, unverified = [], [], []
+    for f in findings:
+        target = by_path.get(f.file)
+        if not claims_parse_failure(f) or target is None:
+            kept.append(f)
+            continue
+        source, complete = reconstruct_file(target)
+        where = {"file": f.file, "line": f.line, "issue_type": f.issue_type}
+        if not complete:
+            kept.append(f)
+            unverified.append({**where, "reason": "파일 일부만 보여 파싱 검증 불가"})
+            continue
+        try:
+            ast.parse(source)
+        except SyntaxError as exc:  # 실제로 파싱 실패 → 지적 유지
+            kept.append(f)
+            unverified.append({**where, "reason": f"실제 파싱 실패: {exc.msg}"})
+            continue
+        dropped.append(
+            {
+                **where,
+                "severity": f.severity,
+                "reason": "변경 후 파일이 ast.parse로 파싱됨 (주장이 사실 아님)",
+                "finding": f.model_dump(),
+            }
+        )
+    return kept, dropped, unverified

@@ -69,3 +69,36 @@ GUI 규칙은 [CLAUDE.md](CLAUDE.md) 6번 "GUI"를 따릅니다. 에이전트·C
 - [ ] **(선택) C1 PR 조회** — `github_get_pr`(MCP)로 PR URL 입력 지원.
   - 메모: 이번 제출 범위에서는 하지 않음. 쓰지 않는 의존성 `langchain-mcp-adapters`는 `requirements.txt`에서 뺐으므로, 진행하면 다시 추가합니다.
   - 확인 **(실제 연결)**: 본인 테스트 저장소 PR URL로 `review`가 끝까지 돈다.
+
+## 4부 · 다음 버전 (리뷰 품질 개선, 평가 재실행 필요)
+
+실제 커밋 리뷰(day07 `23402b2`, day03 `b24f206`, day05 `13ee4ae`)에서 발견한 문제를 고칩니다. 2차 평가 결과는 제출 기준으로 그대로 두고, 이 버전은 다시 평가합니다.
+
+- [x] **D1 고치는 방법 들여쓰기** (`src/render.py`, 결정적) — `-` 줄의 들여쓰기를 `+` 줄 전체에 붙이고 `+` 줄끼리의 상대 들여쓰기 유지.
+  - 확인: 가짜 모델 테스트 `test_fix_plus_lines_take_indent_of_minus_line`.
+- [x] **D2 인젝션 등급** (`src/guardrails.py`) — 리뷰 도구를 부르는 명령문만 security(medium), 따옴표·정규식 패턴 목록·탐지 주석 안의 문장과 부르는 말 없는 명령문은 "참고"(low, 꼭 고칠 것·요약에서 제외).
+  - 확인: `test_case19_injection_stays_medium`, `test_quoted_or_pattern_example_is_low_note`. 실제 실행에서 19번 통과, day05 80행은 low 참고.
+  - 기록: "AI에게"처럼 한글이 바로 붙으면 `\bAI\b`가 못 잡는 문제를 테스트가 찾아 영문자 경계로 고침.
+- [x] **D3 E501 묶음과 요약 규칙** (`src/render.py`, `src/agent.py`) — 화면에서 파일별 E501을 한 항목으로(코드 줄·주석·docstring, ruff 길이, 수정안 없음, 나누는 방법·저장소 ruff 설정 안내 한 줄). 요약·추천은 보안·버그부터, 스타일 최대 1줄(코드로 확인, 1회 재생성 뒤 사실 문장으로 대체). Review JSON과 평가는 개별 지적 기준.
+  - 확인: `test_line_length_findings_are_grouped_per_file`, `test_synth_payload_orders_groups_and_drops_notes`. 실제 실행 4·14·15·17·19번 통과(`v2-check3`).
+  - 기록: 묶음에서 수정안을 빼자 4번 trait "줄을 나누는 방법 제안"이 실패 → 묶음 안내 줄에 일반적인 나누는 방법 한 문장 추가(줄마다 수정안은 여전히 없음).
+  - 보완 (요약 구조): 요약 2·3·4줄은 코드(`secbug_line`·`style_line`·`scope_line`), LLM은 `SummaryDraft`(change·action·recommendations)만. 규칙 위반 줄은 1회 재생성 후 그 줄만 코드 문장(`change_fallback`·`action_fallback`), `trace`에 `stage="summary"`, `replaced`. `ReviewSummary`·스타일 줄 수 제한 함수는 삭제.
+    - 확인: `test_code_summary_lines_and_llm_line_rules`, `test_llm_summary_lines_are_replaced_after_one_retry`, `test_run_query_returns_three_keys_and_trace`.
+- [x] **D4 저장소 설정·변경 한도·줄 길이 지적**
+  - D4-1 저장소 ruff 설정: `config.ReviewSettings`·`load_review_settings(repo_dir, max_lines)`, `run_ruff`·`build_tools`에 설정 전달, 적용 기준을 화면 맨 위 줄과 요약 4줄에 표시. 확인: `test_run_ruff_follows_repo_ruff_setting`.
+  - D4-2 줄 길이 지적은 코드가 ruff 결과로 만듦(`line_length_findings`, 숫자는 ruff 값), 리뷰어 프롬프트에서 E501 제외, 리뷰어가 낸 E501은 버리고 개수를 trace에. 확인: `test_line_length_findings_are_made_by_code`.
+  - D4-3 변경 한도: 기본 300, 최대 500(`config.MAX_LINES_CAP`), 사용자 지정 > 저장소 `[tool.citereview] max-lines` > 300. CLI `--repo-dir`·`--max-lines`, GUI 변경 한도 입력칸(커밋 목록 "초과" 표시가 적용 한도를 따름), 평가는 항상 기본값. `run_eval.py` summary에 요약 줄 대체 비율(`summary_replaced`). 확인: `test_review_settings_priority_and_cap`, `test_check_input_uses_max_lines`, `test_other_origin_is_rejected`(GUI).
+  - D4-4 토큰 측정: Haiku 4.5 일일 토큰 한도로 중단(day03은 5회 호출 뒤 한도, day06은 0회). 리뷰 모델을 gpt-oss-120b로 바꾼 뒤 **D5 실행과 함께 측정**합니다(D6-3의 trace `usage`). day03(290줄, 기본값)과 day06(338줄, `--max-lines 500`)을 같이 실행하고, 500줄에 가까운 실제 diff가 있으면 실측, 없으면 두 점 선형 추정치로 리포트에 명시.
+- [x] **D6 gpt-oss 교체 후 보완** (리뷰 모델 `openai.gpt-oss-120b-1:0`, 사용자 결정)
+  - D6-0 교체 대응: `supports_tool_choice_values` 지정, 리뷰어 보완 단계(`structured`: agent/finalize/none), 종합의 빈 구조화 출력은 형식 오류, 한국어 지시와 한글 없는 요약 줄 규칙 위반, 추론 블록 마스킹. 확인: `test_reviewer_without_result_tool_is_finalized`.
+  - D6-1 10번 오탐 조사: 3회 실행에서 재현 0회(앞선 1회 포함 4회 중 1회), 변경 후 파일은 `ast.parse` 통과, 리뷰어 입력 형식의 들여쓰기 열은 일정. 자료: `evaluation/notes/case10/`.
+  - D6-2 파싱 실패 주장 검증(출력 검증 ④, `verify_syntax_claims`): SyntaxError·IndentationError·문법·구문 오류를 주장하는 지적만 대상, 파싱되면 제거(`syntax_dropped`), 일부만 보이거나 실제 실패면 유지(`syntax_kept`). 확인: `test_parse_failure_claim_dropped_but_logic_bug_kept`(논리 버그 유지), `test_parse_failure_claim_kept_when_broken_or_partial`.
+  - D6-3 요약 줄 길이 숫자 검사: 줄 길이·E501·line-length를 언급한 문장만, 기준값은 요약 4줄에만, 종합 입력에 적용 기준. 확인: `test_length_numbers_checked_only_in_line_length_sentences`, `test_wrong_length_number_in_summary_is_replaced`.
+  - D6-4 역할별 토큰: trace `usage`(보완·재생성 따로), `run_eval.py` summary에 `usage`·`structured`·`syntax`(④ 덕분에 통과한 케이스 수 포함). 확인: `test_usage_is_recorded_per_role_with_retry_and_finalize_separate`, `test_eval_summaries_for_usage_structured_and_syntax_rescue`, 실제 실행 1건.
+  - D6-5 리뷰어 결과 없음 표시: `structured`가 none이면 맨 위 "주의: … 결과 없음(확인 못 함)", 빈 섹션은 "(확인 못 함)", "문제를 찾지 못했습니다." 생략. trace `stage="reviewers"`, `run_eval` summary `structured.none_by_reviewer`. 확인: `test_missing_reviewer_result_is_shown_as_unchecked_not_no_issues`. (04번 실제 실행에서 스타일 리뷰어 none 1회 발견이 계기)
+  - D6-6 D5 준비: `run_eval.py --review-model gpt-oss|haiku`(판정 Nova Pro 고정), `--core`(2·3·4·14·15·17·19), 폴더 이름 끝에 모델 이름, `run_meta.json`·`summary.json`에 모델 기록, `round3_report.md` 틀(조건 A·B).
+  - D6-7 더미 표시 비밀값(day04 `0c4f653` 리뷰가 계기): 주석에 더미 표시가 있으면 low 참고, 값 자체는 검사하지 않음(18번 high 유지, 평가셋 22개 diff에서 low로 바뀌는 비밀값 0건 — 조건 A·B 비교에 영향 없음). 확인: `test_example_in_value_only_stays_high`, `test_dummy_comment_above_lowers_to_note`.
+  - D6-8 day04 버그 리뷰어 none 원인(LangSmith trace): 같은 diff를 두 번 리뷰, 두 번째에 버그 리뷰어가 결과 도구 대신 `{"findings": []}`를 글로 답하고(입력 7,405 토큰, stop=end_turn) 보완 단계도 글로만 답함(출력 12토큰) → 구조화 파서 None. 입력 크기보다 "JSON을 글로 답하는" 모델 습관이 원인. `run_eval` summary `structured_by_size`(케이스별 상태·.py 줄 수·리뷰어 입력 토큰) 추가.
+- [ ] **D5 다음 버전 평가** — 본 세트 20 + 추가 세트 2 재실행(gpt-oss-120b), 4·14·15·17·19번 따로 확인, 커밋 재리뷰 3건 + day06 500줄, 토큰(D4-4) 함께 기록, 리포트(`evaluation/round3_report.md`, 2차 리포트는 유지).
+  - 끝나면 README "핵심 결과 한눈에"·"RAGAS 평가 결과"·"인-아웃 세트 통과율"을 round3 기준으로 갱신합니다(2차 기준 표시 문장 교체, 2차 값은 비교용으로 남기고 리뷰 모델을 함께 적음).
+  - 기준 시점: 2차 제출은 태그 `submission-round2`(커밋 `7d2400c`), 다음 버전은 main (submission-round2 태그 이후).

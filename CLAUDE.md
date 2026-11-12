@@ -30,7 +30,7 @@
 |---|---|
 | 언어 | Python 3.12 이상 |
 | LangChain / LangGraph | **1.x 기준**. 교육 환경 설치본: `langchain 1.4.7`, `langchain-core 1.7.3`, `langgraph 1.2.19`. 메이저 1.x 범위로 고정 (`langchain>=1.4,<2`, `langgraph>=1.2,<2`) |
-| LLM (리뷰) | `us.anthropic.claude-haiku-4-5-20251001-v1:0` (Amazon Bedrock, `us-east-1`), `ChatBedrockConverse`, temperature 0. **AGENTS.md 고정값(Sonnet 4.5)에서 사용자 결정으로 변경** — Sonnet 4.5가 계정 일일 토큰 한도에 걸려 개발이 막혔기 때문 (README 회고에 기록) |
+| LLM (리뷰) | `openai.gpt-oss-120b-1:0` (Amazon Bedrock, `us-east-1`), `ChatBedrockConverse`, temperature 0, `supports_tool_choice_values=("auto","any","tool")`. **AGENTS.md 고정값(Sonnet 4.5) → Haiku 4.5(1·2차 평가) → gpt-oss-120b(다음 버전), 모두 사용자 결정** — Sonnet·Haiku가 차례로 계정 일일 토큰 한도에 걸려 개발이 막혔기 때문 (README 회고에 기록). gpt-oss는 답에 추론 블록이 섞이고(마스킹 미들웨어가 그 text도 가림), `tool_choice`를 받아도 강제하지 않아 결과 도구를 건너뛸 수 있음 → 리뷰어 보완 단계(`reviewers._finalize`), 종합 노드는 빈 구조화 출력을 형식 오류로 처리 |
 | 임베딩 | `amazon.titan-embed-text-v2:0` (1024차원) |
 | 벡터 DB | Chroma — `persist_directory="./chroma_db"`, `collection_name="sds_policies"`. 이름이 코드 리뷰 코퍼스와 맞지 않지만 **과정 고정값(AGENTS.md)이라 유지** |
 | 검색 방식 | **하이브리드**: `langchain_community.retrievers.BM25Retriever`(키워드, `rank_bm25` 사용) + Chroma 벡터 검색을 **RRF(Reciprocal Rank Fusion)로 직접 합침**. `EnsembleRetriever`는 1.x에서 `langchain_classic`으로 옮겨져 사용 금지 목록에 해당하므로 쓰지 않음. 두 패키지 모두 설치본에서 import 확인 |
@@ -41,7 +41,7 @@
 | 외부 연동 | 게시(`github_post_comment`)는 **dry-run**(콘솔 출력), 허용 목록은 `.env`의 `CITEREVIEW_ALLOWED_POST_REPOS`(쉼표 구분 `owner/repo`). PR 조회(`github_get_pr`)는 **선택 작업(C1)**으로 `langchain_mcp_adapters.client.MultiServerMCPClient` + GitHub 공식 MCP 서버(`github/github-mcp-server`, stdio)로 붙이고, 토큰은 `.env`의 `GITHUB_PERSONAL_ACCESS_TOKEN`(읽기 권한만) |
 | 평가 | RAGAS 4개 지표 (`faithfulness`, `answer_relevancy`, `context_precision`, `context_recall`). `ragas` 0.4.3은 **평가 전용 환경 `.venv-eval`(Python 3.12, `requirements-eval.txt`)**에 설치 — 과정 venv(Python 3.14)에서는 의존성 `scikit-network` 빌드가 실패함. `answer_relevancy`의 임베딩은 `amazon.titan-embed-text-v2:0` |
 | RAGAS 판정 LLM | `us.amazon.nova-pro-v1:0` (Bedrock, `us-east-1`) — **평가 전용 예외**. 리뷰 모델과 다른 모델로 자기 평가 편향을 줄임. 에이전트 본체에는 쓰지 않음 |
-| 관측 | `run_query`가 돌려주는 `trace`(결정적 이벤트 목록, `src/observability.py`)와 평가 실행 기록 `evaluation/runs/<실행ID>/<케이스>/trace.json`. `.env`에 `LANGSMITH_TRACING=true`·`LANGSMITH_API_KEY`가 있으면 LangChain이 LangSmith로도 보냄(연결 확인함: 2차 평가의 그래프 실행이 기록됨) |
+| 관측 | `run_query`가 돌려주는 `trace`(결정적 이벤트 목록, `src/observability.py`)와 평가 실행 기록 `evaluation/runs/<실행ID>/<케이스>/trace.json`. `.env`에 `LANGSMITH_TRACING=true`·`LANGSMITH_API_KEY`가 있으면 LangChain이 LangSmith로도 보냄(연결 확인함: 2차 평가의 그래프 실행이 기록됨). 토큰은 `run_query`가 trace `usage` 이벤트로 남김: 모델을 부르는 쪽이 config metadata `citereview_role`에 역할 이름(리뷰어, `:finalize` 보완 단계, `suggestion_fix`, `synthesize`, `synthesize:retry`)을 넣고, `observability.record_usage`가 역할별 호출 수·입력·출력 토큰을 모음. 표시 없는 호출은 "기타" |
 | 인터페이스 | **CLI 기본 + 시연용 로컬 웹 GUI**(`http.server`, 표준 라이브러리만, `src/gui_server.py`). 강사 확인: CLI로 충분하고 개발·테스트에는 GUI가 편함. 핵심 함수는 `answer`·`contexts`·`trace`를 돌려줌 (3-1번). 배포용 웹 서비스와 `POST /query` 서버는 확장 시 |
 | GUI 디자인 | Hallmark 스킬(https://github.com/nutlope/hallmark), **이 프로젝트에만 설치**(`-g` 없이 설치함, 디자인 적용은 TASKS G2). 결과물은 독립 HTML/CSS라 `gui_server.py`가 그대로 제공 |
 | 제출 | 과제 저장소가 아닌 별도 GitHub 저장소 `mini-pjt_{본인이름}` (강사 확인), 제출 커밋 첫 줄은 `[제출] MiniPJT` |
@@ -68,7 +68,8 @@ mini-pjt_{본인이름}/
 │   │                           #   코드 발췌는 diff_parser 함수만 씀
 │   ├── observability.py        # trace 이벤트 기록(시각 포함), 응답 시간 계산
 │   ├── config.py               # 모델·경로 상수, get_llm() 등 모델 생성 함수
-│   ├── cli.py                  # 진입점: review <diff 파일>, --batch, --verbose, --repo
+│   ├── cli.py                  # 진입점: review <diff 파일>, --batch, --verbose, --repo,
+│   │                           #   --repo-dir(저장소 ruff 설정), --max-lines(변경 한도, 최대 500)
 │   └── gui_server.py           # 시연용 로컬 웹 GUI: http.server + HTML,
 │                               #   run_query·resume_review·render.py만 호출 (6번 "GUI")
 ├── data/                       # 사용한 문서·데이터
@@ -81,7 +82,9 @@ mini-pjt_{본인이름}/
 │   ├── test_queries.csv        # 인-아웃 세트 22건 = 본 세트 20 + 추가 세트 2 (§4-4 스키마) — 자체 평가·최종 채점의 기준
 │   ├── validate_test_queries.py # CSV 형식·건수 검증 (건수·비율은 본 세트만)
 │   ├── round1_report.md        # 1차 자체 평가 결과
-│   ├── round2_report.md        # 2차 자체 평가 결과 (개선 후)
+│   ├── round2_report.md        # 2차 자체 평가 결과 (개선 후, 태그 submission-round2)
+│   ├── round3_report.md        # 3차(다음 버전) 결과: 조건 A(Haiku)·B(gpt-oss) 구분
+│   ├── notes/                  # 조사 자료 (예: case10/ — gpt-oss 10번 오탐 조사, 마스킹 후)
 │   ├── run_eval.py             # 케이스 실행·통과 판정, 근거 확인 비율, 근거-지적 일치율, 응답 시간, 재채점
 │   ├── run_ragas.py            # RAGAS 4개 지표 (.venv-eval, 실행 기록만 읽음)
 │   └── runs/                   # 실행 기록 (마스킹 후 내용만, .gitignore 대상)
@@ -117,15 +120,20 @@ mini-pjt_{본인이름}/
 ```
 입력(diff 파일)
 → [입력 가드레일]  비밀값·PII 마스킹, 인젝션 탐지 (위치마다 security 지적, diff는 데이터로만 전달),
-                   .py 외 파일 건너뛰고 목록 기록, .py 없음(Java만 등)·.py 추가·삭제 300줄 초과면 거절
+                   .py 외 파일 건너뛰고 목록 기록, .py 없음(Java만 등)·.py 추가·삭제 변경 한도 초과면 거절
+                   (기본 300, 사용자 설정으로 최대 500)
 → [planner]        규칙 기반: 버그 리뷰어는 항상, 스타일 리뷰어는 추가된 줄이 있을 때. 파일 범위는 .py 전체 (LLM 없음)
 → [supervisor]     create_supervisor가 계획된 리뷰어에게 넘김 (빠뜨린 리뷰어는 코드가 직접 실행)
                    버그 리뷰어(security 판정 포함) / 스타일 리뷰어 — 둘 다 create_agent + ruff_check·search_evidence를
                    스스로 선택(ReAct), 마스킹·호출 제한 미들웨어
 → [출력 검증]      ① 근거 존재 검사(근거 없는 지적 제거) ② C2: PEP 8 근거 style 지적은 그 줄에 대응 ruff 위반이
-                   있을 때만 유지 ③ langchain_classic 권장 제거(재생성 1회 → 결정적 대체),
+                   있을 때만 유지 ③ langchain_classic 권장 제거(재생성 1회 → 결정적 대체)
+                   ④ 파싱 실패(SyntaxError 등)를 주장하는 지적은 변경 후 파일을 ast.parse로 검증해
+                   파싱되면 제거(파일 일부만 보이면 유지·기록), ⑤ 줄 길이 지적은 ruff 결과로 코드가 만듦,
                    입력 가드레일의 security 지적 병합 (LLM은 ③의 재생성에만)
-→ [종합]           LCEL로 요약 5줄 + 추천 개선안 (스키마 검증, 형식 오류 시 최대 1회 재생성 후 실패)
+→ [종합]           요약 5줄 중 2·3·4줄(보안·버그, 스타일, 범위·기준)은 코드가 만들고,
+                   LCEL은 1줄(변경 내용)·5줄(할 일)·추천 개선안만 씀 (SummaryDraft 스키마 검증,
+                   형식 오류 시 최대 1회 재생성 후 실패, 규칙 위반 줄은 1회 재생성 후 코드 문장으로 대체)
 → [렌더링]         Review → 터미널 Markdown (형식 기준 docs/output_example.md, 내부 로그는 --verbose에서만)
 → [HITL]           interrupt로 승인/거절/항목별 무시 (--batch는 승인 대기를 trace에 기록하고 재개하지 않음)
 → [게시]           승인 + 허용 목록 저장소일 때만 코멘트 내용 출력 (dry-run)
@@ -212,12 +220,15 @@ CiteReview 자신이 deprecated API를 쓰면 안 됩니다. 아래는 **사용 
 
 ### 근거와 가드레일
 - 근거는 세 종류만 인정합니다: **문서 청크(doc) / 도구 출력(tool) / diff 코드 위치(code)**.
+- **파싱 실패 주장 검증:** 지적 설명이 SyntaxError·IndentationError·TabError·문법·구문 오류를 주장하면 변경 후 파일을 `ast.parse`로 검증합니다(`guardrails.verify_syntax_claims`). 파싱되면 제거하고 `trace`의 `syntax_dropped`에 지적 전체와 사유를, 파일 일부만 보이거나 실제로 파싱이 안 되면 유지하고 `syntax_kept`에 사유를 남깁니다. 논리 버그 설명("들여쓰기 때문에 return이 루프 안에 있음")은 대상이 아닙니다.
 - 출력 검증은 근거가 **실제로 존재하는지 기계적으로 확인**합니다. 예: `code` 근거의 라인이 diff에 있는지, `doc` 근거가 이번 검색 결과에 있었는지, `tool` 근거가 이번 도구 출력에 있었는지. 제거 전후 지적 수를 `trace`에 남깁니다.
 - 비밀값·개인정보 마스킹은 **LLM 호출 전에** 실행하고, 마스킹 위치마다 `security` 지적(근거 유형 `tool`)을 만듭니다. 마스킹 표시는 `[MASKED:<패턴명>]` 형식(예: `[MASKED:aws-access-key]`, `[MASKED:email]`)으로 써서 원문은 숨기되 무엇이 있었는지는 리뷰어와 평가 판정 LLM이 알 수 있게 합니다. 출력과 실행 기록에도 원문을 남기지 않습니다.
   - 비밀값 패턴(`secret-scanner:`): AWS 키, 일반 API 키·토큰, 비밀번호 할당문 등
+  - 더미 표시 비밀값: 탐지된 줄의 `#` 주석(문자열 밖)이나 바로 위 1~2줄 **주석 줄**에 더미·예시·dummy·example·test·fake·sample 표시가 있으면 secret-scanner 지적을 low "참고"로 낮춥니다(`guardrails._marked_dummy`, 지적·마스킹은 유지, 꼭 고칠 것·요약 제외 `is_note`). 따옴표 안의 값은 검사하지 않습니다(18번 `…EXAMPLE` 키는 high).
   - 개인정보 패턴(`pii-scanner:`): 이메일, 전화번호, 주민등록번호. 예시용으로 흔히 쓰는 주소(`user@example.com` 등)는 허용 목록으로 제외해 오탐을 줄입니다.
 - 리뷰 대상은 diff 안의 **`.py` 파일만**입니다. 다른 파일(README, `pyproject.toml`, `.yaml` 등)은 건너뛰고 출력에 목록을 안내하며, `.py` 파일이 없으면 거절합니다(Java만 있으면 "아직 지원하지 않는 언어"라고 안내).
-- 300줄 판정은 **`.py` 파일의 추가·삭제 줄 합계**로 합니다 (diff 헤더·문맥 줄·다른 파일 제외).
+- 변경 한도 판정은 **`.py` 파일의 추가·삭제 줄 합계**로 합니다 (diff 헤더·문맥 줄·다른 파일 제외). 한도는 **기본 300줄, 사용자 설정으로 최대 500줄**(`config.MAX_LINES_CAP`)이며 우선순위는 CLI `--max-lines`·GUI 입력 > 저장소 `pyproject.toml [tool.citereview] max-lines` > 기본 300입니다. 평가 실행은 `run_query`에 설정을 넘기지 않으므로 항상 기본값입니다.
+- 저장소 폴더가 주어지면(CLI `--repo-dir`, GUI 커밋 모드) 그 저장소의 ruff 설정(`ruff.toml` → `.ruff.toml` → `pyproject.toml [tool.ruff]`)으로 검사하고, 없으면 CiteReview `ruff.toml`을 씁니다(`config.load_review_settings`). 적용 기준은 화면 맨 위 안내 줄과 요약 4줄에 보입니다. `--repo`는 GitHub 게시 대상(`owner/repo`)이라 이름을 나눴습니다.
 - 형식 오류는 **최대 1회 재생성** 후 실패로 처리합니다.
 - 게시는 HITL 승인 후에만, 허용 목록에 있는 본인 테스트 저장소에만 합니다(이번 범위는 dry-run).
 - **프롬프트 인젝션 방어 (두 층):**
@@ -230,7 +241,12 @@ CiteReview 자신이 deprecated API를 쓰면 안 됩니다. 아래는 **사용 
 - 섹션은 요약 / 잠재 버그(보안은 소제목) / 스타일 이슈 / 추천 개선안을 유지하고, 섹션 안에서는 심각도 `high` > `medium` > `low` 순으로 정렬합니다.
 - 문제 코드 발췌(문제 줄 ±1줄, 변경 후 파일 기준 줄 번호)는 렌더러가 `src/diff_parser.py`로 **diff에서 결정적으로 뽑습니다.** LLM이 코드 인용을 만들지 않으며, 마스킹 후 내용을 씁니다.
 - 근거 표시 이름: 문서 청크는 청크 메타데이터 `title`을, 도구 근거는 렌더러의 고정 이름표를 씁니다(예: `secret-scanner` → "비밀값 탐지"). 규칙 ID는 괄호로 뒤에 붙입니다.
-- 고치는 방법: `suggestion` 안에 ```` ```python ```` 블록이 있으면 문제 줄을 `-`로, 블록 내용을 `+`로 렌더링합니다. 블록이 없으면 문장으로만 보여 줍니다.
+- 고치는 방법: `suggestion` 안에 ```` ```python ```` 블록이 있으면 문제 줄을 `-`로, 블록 내용을 `+`로 렌더링합니다. 블록이 없으면 문장으로만 보여 줍니다. `+` 줄에는 `-` 줄의 들여쓰기를 붙입니다.
+- 줄 길이(E501): 한 파일의 E501 지적은 한 항목으로 묶고(코드 줄·주석·docstring 구분, 길이는 ruff 값) 수정안을 붙이지 않습니다. 화면 번호·HITL 항목 번호는 묶음 단위이고, Review JSON에는 개별 지적이 남습니다.
+- 리뷰어 결과 없음: 리뷰어가 결과 도구도 보완 단계도 실패하면(`structured`가 none) 맨 위에 "주의: 스타일 리뷰어 결과 없음(확인 못 함)"을 표시하고, 그 리뷰어가 맡은 빈 섹션은 "(없음)" 대신 "(확인 못 함: … 결과 없음)", "문제를 찾지 못했습니다."는 쓰지 않습니다("문제 없음"과 구분). trace에는 `stage="reviewers"` 이벤트(`structured`, `none`)를 남깁니다.
+- 요약 규칙: 2·3·4줄(보안·버그, 스타일 한 줄, 범위·기준)은 코드가 지적 목록과 설정에서 만듭니다. LLM은 1줄(변경 내용, 추측·평가 금지)과 5줄(할 일, 지적 목록 안의 줄 번호만)만 쓰고, 규칙 위반이면 1회 재생성 후 그 줄만 코드 문장으로 바꿉니다(`trace`의 `stage="summary"`, `replaced`). 인젝션 "참고"(low)는 꼭 고칠 것과 요약에서 뺍니다.
+- 줄 길이(E501) 지적은 리뷰어가 내지 않고 출력 검증이 ruff 결과로 직접 만듭니다(숫자는 ruff 값). 리뷰어가 낸 E501은 버리고 개수를 `trace`에 남깁니다.
+- 요약의 줄 길이 숫자: 1·5줄(LLM)에서 줄 길이·E501·line-length를 언급한 문장의 "숫자+자·칸·글자" 값은 적용 기준 또는 ruff가 잰 길이여야 합니다(아니면 규칙 위반 → 1회 재생성 → 코드 문장). 적용 기준값은 요약 4줄에만 넣고 3줄(스타일)에는 넣지 않습니다. 종합 프롬프트 입력에 적용 기준을 넘깁니다.
 - `Finding.message`는 "무엇이 문제인가 + 왜 문제인가"를 한두 문장으로 씁니다. 이 규칙을 리뷰어 프롬프트에 넣습니다. 스키마에 새 필드는 추가하지 않습니다(구현 후 부족하면 다시 논의).
 - 이 형식은 렌더링에만 적용합니다. `--batch`의 Review JSON, 스키마, 평가 방식은 바뀌지 않습니다.
 
@@ -240,11 +256,13 @@ CiteReview 자신이 deprecated API를 쓰면 안 됩니다. 아래는 **사용 
 
 ### GUI (시연용 로컬 웹 화면, `src/gui_server.py`)
 - **표준 라이브러리만** 씁니다(`http.server`, `threading`, `json`, `subprocess`로 `git` 호출 등). 새 Python 라이브러리를 들이지 않습니다.
+  - 폴더 선택 창은 표준 라이브러리 `tkinter.filedialog.askdirectory`를 **별도 파이썬 프로세스**로 띄웁니다(서버 스레드에서 tkinter를 돌리지 않음, 창은 항상 맨 앞). 마지막에 쓴 폴더는 브라우저 `localStorage`에만 기억합니다.
 - **`run_query`, `resume_review`, `src/render.py`만 호출합니다.** 에이전트·CLI·평가 코드는 GUI 때문에 고치지 않습니다.
   - 진행 표시: `run_query`는 끝날 때 trace를 돌려주므로, GUI 프로세스 안에서만 `TraceRecorder.add`를 감싸 노드 진입 이벤트를 작업별로 복사합니다(`contextvars`로 구분). 에이전트 코드 파일은 고치지 않습니다.
 - 리뷰는 서버의 **별도 스레드**에서 실행하고, 화면은 그 리뷰의 `trace` 노드 진입 이벤트를 **폴링**해 진행 상황(입력 가드레일 → planner → 리뷰어 → 출력 검증 → 종합 → 렌더링 → 승인 대기)을 보여 줍니다.
 - HITL 승인 대기 중인 `thread_id`는 **서버 메모리**에 보관하고, 승인/거절 버튼이 `resume_review(thread_id, 결정)`을 부릅니다. 게시는 CLI와 같이 **dry-run + 허용 목록**만입니다.
 - 서버는 **로컬(`127.0.0.1`)에서만** 엽니다. 외부 주소로 바인딩하지 않습니다.
+- **모든 요청은 Host 헤더가 `127.0.0.1:포트`·`localhost:포트`일 때만, POST(리뷰 실행·승인/거절·폴더 창·커밋 조회)는 Origin 헤더가 이 서버 자신일 때만 처리하고 아니면 403**입니다(DNS 리바인딩·다른 사이트의 요청 위조 방어, `tests/test_gui_server.py` 2건). `run.bat`은 활성화된 가상환경과 관계없이 본체 환경 Python(`..\..\.venv` → `.venv` → PATH, `.venv-eval` 제외)으로 실행합니다.
 - 디자인은 Hallmark로 하고, 대상은 **개발 도구 화면**입니다. 히어로 영역, 마케팅 문구, 구독 폼, 페이지 끝 CTA를 넣지 않습니다.
 - 결과 영역은 **고정폭 글꼴**로 렌더러 출력을 그대로 보여 주어, 줄 번호·`>` 표시·`-`/`+` 줄의 정렬을 정확히 유지합니다.
 

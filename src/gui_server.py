@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import contextvars
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -110,8 +111,85 @@ def _git(repo: str, *args: str) -> str:
     return result.stdout
 
 
-def list_commits(repo: str, limit: int = 30) -> list[dict]:
-    """최근 커밋 목록과 커밋마다 `.py` 추가·삭제 줄 수(300줄 초과 표시용)."""
+def is_git_repo(path: str) -> bool:
+    """로컬 폴더가 git 저장소(작업 트리)인지 확인합니다. URL·없는 폴더는 False."""
+    if not path or not Path(path).is_dir():
+        return False
+    try:
+        return _git(path, "rev-parse", "--is-inside-work-tree").strip() == "true"
+    except ValueError:
+        return False
+
+
+# 폴더 선택 창: 서버 스레드가 아니라 별도 프로세스에서 tkinter를 띄움 (항상 맨 앞)
+_PICKER = r"""
+import sys, tkinter
+from tkinter import filedialog
+root = tkinter.Tk()
+root.withdraw()
+root.attributes("-topmost", True)
+root.update()
+path = filedialog.askdirectory(
+    parent=root, initialdir=sys.argv[1] or None, mustexist=True,
+    title="리뷰할 저장소 폴더 선택",
+)
+root.destroy()
+sys.stdout.write(path or "")
+"""
+_PICKER_LOCK = threading.Lock()
+
+
+def pick_folder(initial: str = "") -> dict:
+    """Windows 폴더 선택 창을 띄워 고른 경로와 git 저장소 여부를 돌려줍니다.
+
+    창은 별도 파이썬 프로세스에서 띄웁니다(tkinter를 서버 스레드에서 돌리지 않음).
+    이미 창이 열려 있으면 두 번째 요청은 거절합니다. 취소하면 path가 빈 문자열입니다.
+    """
+    if not _PICKER_LOCK.acquire(blocking=False):
+        raise ValueError("폴더 선택 창이 이미 열려 있습니다.")
+    try:
+        start = initial if initial and Path(initial).is_dir() else ""
+        result = subprocess.run(
+            [sys.executable, "-c", _PICKER, start],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=600,
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError("폴더 선택 시간이 지났습니다.") from exc
+    finally:
+        _PICKER_LOCK.release()
+    if result.returncode != 0:
+        raise ValueError("폴더 선택 창을 열지 못했습니다.")
+    path = result.stdout.strip()
+    if not path:
+        return {"path": "", "git": False}
+    path = os.path.normpath(path)
+    return {"path": path, "git": is_git_repo(path)}
+
+
+def review_limit(repo: str, max_lines) -> config.ReviewSettings:
+    """화면의 변경 한도 입력과 저장소 설정으로 실제 적용될 기준을 정합니다.
+
+    빈 입력이면 저장소 `[tool.citereview] max-lines` > 기본 300, 최대 500
+    (범위를 벗어나면 ValueError → 400 응답). 리뷰 실행과 같은 함수로 계산합니다.
+    """
+    value = None if max_lines in (None, "") else int(max_lines)
+    return config.load_review_settings(repo or None, value)
+
+
+def list_commits(
+    repo: str, limit: int = 30, max_py_lines: int = MAX_PY_LINES
+) -> list[dict]:
+    """최근 커밋 목록과 커밋마다 `.py` 추가·삭제 줄 수(적용 한도 초과 표시용)."""
+    if not is_git_repo(repo):
+        raise ValueError(
+            f"git 저장소가 아닙니다: {repo or '(빈 경로)'} "
+            "— 내 PC의 저장소 폴더 경로를 넣어 주세요 (GitHub 주소는 먼저 clone)."
+        )
     out = _git(
         repo,
         "log",
@@ -139,7 +217,7 @@ def list_commits(repo: str, limit: int = 30) -> list[dict]:
                 commits[-1]["py_lines"] += int(added) + int(deleted)
                 commits[-1]["py_files"] += 1
     for c in commits:
-        c["over_limit"] = c["py_lines"] > MAX_PY_LINES
+        c["over_limit"] = c["py_lines"] > max_py_lines
     return commits
 
 
@@ -169,8 +247,14 @@ def stage_diff_file(path: str) -> Path:
 # ── 리뷰 작업 ────────────────────────────────────────────────────────
 
 
-def start_job(diff_path: Path) -> str:
-    """리뷰를 별도 스레드에서 시작하고 작업 ID를 돌려줍니다."""
+def start_job(
+    diff_path: Path, repo_dir: str | None = None, max_lines: int | None = None
+) -> str:
+    """리뷰를 별도 스레드에서 시작하고 작업 ID를 돌려줍니다.
+
+    커밋 모드는 `repo_dir`(그 저장소의 ruff·citereview 설정)과 화면의 변경 한도를
+    `run_query`에 그대로 넘깁니다. 파일 모드는 둘 다 없이 기본 기준으로 리뷰합니다.
+    """
     job_id = uuid.uuid4().hex[:12]
     with JOBS_LOCK:
         JOBS[job_id] = {
@@ -187,7 +271,9 @@ def start_job(diff_path: Path) -> str:
     def work() -> None:
         _CURRENT_JOB.set(job_id)
         try:
-            result = run_query(f"{diff_path} 를 리뷰해줘")
+            result = run_query(
+                f"{diff_path} 를 리뷰해줘", repo_dir=repo_dir, max_lines=max_lines
+            )
             waiting = next(
                 (
                     e
@@ -283,8 +369,30 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         return json.loads(self.rfile.read(length) or b"{}")
 
+    def _own_hosts(self) -> set[str]:
+        """이 서버 자신의 `호스트:포트` (127.0.0.1과 localhost만)."""
+        port = self.server.server_address[1]
+        return {f"127.0.0.1:{port}", f"localhost:{port}"}
+
+    def _host_ok(self) -> bool:
+        """Host 헤더가 이 서버 자신일 때만 처리합니다 (DNS 리바인딩 방어)."""
+        return (self.headers.get("Host") or "").lower() in self._own_hosts()
+
+    def _origin_ok(self) -> bool:
+        """POST는 Origin 헤더가 이 서버 자신일 때만 처리합니다 (다른 사이트의 요청 위조 방어).
+
+        브라우저는 같은 출처의 POST에도 Origin을 붙이므로, 없거나 다르면 거절합니다.
+        """
+        origin = (self.headers.get("Origin") or "").lower()
+        return origin in {f"http://{h}" for h in self._own_hosts()}
+
+    def _forbidden(self) -> None:
+        self._json({"error": "허용되지 않은 요청입니다 (Host 또는 Origin)."}, 403)
+
     def do_GET(self):  # noqa: N802 (http.server 규약)
         """화면, diff 목록, 작업 상태."""
+        if not self._host_ok():
+            return self._forbidden()
         url = urlparse(self.path)
         try:
             if url.path == "/":
@@ -300,17 +408,43 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": str(exc)}, 400)
 
     def do_POST(self):  # noqa: N802 (http.server 규약)
-        """커밋 목록, 리뷰 시작, 승인/거절."""
+        """커밋 목록, 폴더 선택 창, 리뷰 시작, 승인/거절.
+
+        모든 POST(리뷰 실행, 승인·거절, 폴더 창 열기, 커밋 조회)는 Host와 Origin이
+        이 서버 자신일 때만 처리하고, 아니면 본문을 읽지 않고 403을 돌려줍니다.
+        """
+        if not (self._host_ok() and self._origin_ok()):
+            # 본문을 읽어 버리고(1MB까지) 403 — 안 읽고 닫으면 Windows에서 연결이 끊김
+            length = min(int(self.headers.get("Content-Length") or 0), 1_000_000)
+            self.rfile.read(length)
+            return self._forbidden()
         try:
             data = self._body()
             if self.path == "/api/commits":
-                self._json({"commits": list_commits(data["repo"].strip())})
+                repo = data["repo"].strip()
+                settings = review_limit(repo, data.get("max_lines"))
+                commits = list_commits(repo, max_py_lines=settings.max_lines)
+                self._json(
+                    {
+                        "commits": commits,
+                        "limit": settings.max_lines,
+                        "limit_source": settings.max_lines_source,
+                    }
+                )
+            elif self.path == "/api/pick-folder":
+                self._json(pick_folder(data.get("initial", "").strip()))
             elif self.path == "/api/review":
                 if data.get("mode") == "commit":
-                    path = diff_from_commit(data["repo"].strip(), data["sha"].strip())
+                    repo = data["repo"].strip()
+                    # 화면 입력이 있을 때만 사용자 지정 (빈 칸이면 저장소 설정 > 300)
+                    raw = data.get("max_lines")
+                    user_max = None if raw in (None, "") else int(raw)
+                    review_limit(repo, user_max)  # 범위 검사 (1~500, 아니면 400)
+                    path = diff_from_commit(repo, data["sha"].strip())
+                    job = start_job(path, repo_dir=repo, max_lines=user_max)
                 else:
-                    path = stage_diff_file(data["path"].strip())
-                self._json({"job": start_job(path)})
+                    job = start_job(stage_diff_file(data["path"].strip()))
+                self._json({"job": job})
             elif self.path == "/api/decision":
                 ignore = [int(n) for n in re.findall(r"\d+", data.get("ignore", ""))]
                 post = decide(data["job"], data["action"], data.get("repo", ""), ignore)
@@ -397,7 +531,7 @@ html { scrollbar-color: var(--color-muted) var(--color-paper); }
   width: 100%; max-width: var(--container); margin-inline: auto; padding-inline: var(--gutter);
 }
 .bar-inner { display: flex; align-items: baseline; gap: var(--space-md); padding-block: var(--space-sm); }
-.bar h1 { font-size: var(--text-lg); font-weight: 650; }
+.bar h1 { font-size: var(--text-lg); font-weight: 650; white-space: nowrap; flex: none; }
 .bar p { margin: 0; color: var(--color-muted); font-size: var(--text-sm); }
 
 .work {
@@ -442,19 +576,30 @@ button.primary {
 button.primary:hover { background: var(--color-accent-hover); border-color: var(--color-accent-hover); }
 .side button.primary { justify-self: start; }
 
-#commits:empty::before { content: "폴더를 넣고 커밋을 불러오면 최근 30개가 여기에 나옵니다."; color: var(--color-muted); font-size: var(--text-sm); }
-#commits { max-height: 26rem; overflow: auto; font-size: var(--text-sm); }
-#commits table { width: 100%; border-collapse: collapse; }
-#commits th, #commits td {
-  text-align: left; padding: var(--space-2xs) var(--space-xs);
-  border-bottom: var(--rule-hair) solid var(--color-rule); vertical-align: top;
+#commits:empty::before { content: "폴더를 고르거나 경로를 넣으면 최근 커밋 30개가 여기에 나옵니다."; color: var(--color-muted); font-size: var(--text-sm); }
+#commits { max-height: 28rem; overflow-y: auto; overflow-x: clip; font-size: var(--text-sm); min-width: 0; }
+#commits .err { color: var(--color-error); overflow-wrap: anywhere; }
+.commit-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2xs); min-width: 0; }
+.commit-list li { min-width: 0; }
+button.commit {
+  display: grid; gap: 2px; width: 100%; min-width: 0; min-height: 0; text-align: left;
+  padding: var(--space-xs) var(--space-sm); border-left-width: 3px; border-left-color: var(--color-rule);
 }
-#commits th { font-weight: 600; color: var(--color-ink-2); background: var(--color-paper-2); position: sticky; top: 0; }
-#commits td:first-child { font-family: var(--font-mono); }
-#commits td:nth-child(4) { font-variant-numeric: tabular-nums; white-space: nowrap; }
-#commits tr.over td { color: var(--color-error); }
-#commits .err { color: var(--color-error); }
-#commits td button { min-height: 28px; padding: 0 var(--space-sm); }
+button.commit:hover { border-left-color: var(--color-accent); }
+button.commit:active { transform: translateY(1px); }
+.commit .msg, .commit .meta {
+  min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.commit .msg { color: var(--color-ink); }
+.commit .meta { color: var(--color-muted); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.commit .meta span + span { margin-left: var(--space-sm); }
+.commit .sha { font-family: var(--font-mono); }
+button.commit.over { border-left-color: var(--color-error); }
+button.commit.over .flag { color: var(--color-error); }
+.commit .line { display: flex; gap: var(--space-xs); align-items: baseline; min-width: 0; }
+.commit .line .msg { flex: 1 1 auto; }
+.commit .flag { flex: none; font-size: var(--text-xs); white-space: nowrap; }
+.repo-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-xs); }
 
 .run-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-md); flex-wrap: wrap; }
 #title { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-ink-2); overflow-wrap: anywhere; }
@@ -515,10 +660,16 @@ pre {
   <div class="side">
     <section class="panel" aria-labelledby="h-commit">
       <h2 id="h-commit">저장소 커밋</h2>
-      <label class="field">저장소 폴더
+      <label class="field" for="repo">저장소 폴더 (내 PC의 경로)</label>
+      <div class="repo-row">
         <input type="text" id="repo" placeholder="C:\path\to\repo">
-      </label>
+        <button id="pick-folder">폴더 선택</button>
+      </div>
+      <label class="field" for="max-lines">변경 한도 (.py 추가·삭제 줄, 최대 500)</label>
+      <input type="text" id="max-lines" inputmode="numeric"
+             placeholder="비우면 저장소 설정 또는 300">
       <button id="load-commits">커밋 불러오기</button>
+      <p id="limit" class="hint"></p>
       <div id="commits"></div>
     </section>
 
@@ -603,32 +754,77 @@ async function loadDiffs() {
 }
 $("diff-list").onchange = () => { $("diff-path").value = $("diff-list").value; };
 
-$("load-commits").onclick = async () => {
+const REPO_KEY = "citereview.lastRepo";
+function rememberRepo(path) {
+  try { localStorage.setItem(REPO_KEY, path); } catch (e) { /* 저장 불가면 무시 */ }
+}
+function recallRepo() {
+  try { return localStorage.getItem(REPO_KEY) || ""; } catch (e) { return ""; }
+}
+function showCommitError(message) {
+  $("commits").innerHTML = `<span class="err">${escapeHtml(message)}</span>`;
+}
+
+async function loadCommits() {
+  const repo = $("repo").value.trim();
   $("commits").textContent = "불러오는 중…";
   $("load-commits").disabled = true;
+  $("limit").textContent = "";
+  const maxLines = $("max-lines").value.trim();
   try {
-    const data = await api("/api/commits", {repo: $("repo").value});
+    const data = await api("/api/commits", {repo, max_lines: maxLines});
+    rememberRepo(repo);
+    $("limit").textContent = `적용 한도: ${data.limit}줄 (${data.limit_source})`;
     if (!data.commits.length) {
       $("commits").textContent = "이 폴더에 커밋이 없습니다.";
       return;
     }
-    const rows = data.commits.map((c) =>
-      `<tr class="${c.over_limit ? "over" : ""}"><td>${c.sha}</td><td>${c.date}</td>` +
-      `<td>${escapeHtml(c.subject)}</td><td>.py ${c.py_files}개, ${c.py_lines}줄` +
-      `${c.over_limit ? " (300줄 초과)" : ""}</td>` +
-      `<td><button data-sha="${c.sha}">리뷰</button></td></tr>`).join("");
-    $("commits").innerHTML = `<table><tr><th>커밋</th><th>날짜</th><th>메시지</th>` +
-      `<th>변경</th><th></th></tr>${rows}</table>`;
-    for (const b of $("commits").querySelectorAll("button")) {
-      b.onclick = () => startReview({mode: "commit", repo: $("repo").value,
-                                     sha: b.dataset.sha});
+    const cards = data.commits.map((c) =>
+      `<li><button class="commit${c.over_limit ? " over" : ""}" data-sha="${c.sha}" ` +
+      `title="${escapeHtml(c.subject)}">` +
+      `<span class="line"><span class="msg">${escapeHtml(c.subject) || "(메시지 없음)"}` +
+      `</span>${c.over_limit ? `<span class="flag">${data.limit}줄 초과</span>` : ""}` +
+      `</span>` +
+      `<span class="meta"><span class="sha">${c.sha}</span><span>${c.date}</span>` +
+      `<span>.py ${c.py_files}개, ${c.py_lines}줄</span></span>` +
+      `</button></li>`).join("");
+    $("commits").innerHTML = `<ul class="commit-list">${cards}</ul>`;
+    for (const b of $("commits").querySelectorAll("button.commit")) {
+      b.onclick = () => startReview({mode: "commit", repo, sha: b.dataset.sha,
+                                     max_lines: maxLines});
     }
   } catch (e) {
-    $("commits").innerHTML = `<span class="err">${escapeHtml(e.message)}</span>`;
+    showCommitError(e.message);
   } finally {
     $("load-commits").disabled = false;
   }
+}
+$("load-commits").onclick = loadCommits;
+$("repo").onkeydown = (e) => { if (e.key === "Enter") loadCommits(); };
+$("max-lines").onkeydown = (e) => { if (e.key === "Enter") loadCommits(); };
+// 한도를 바꾸면 커밋 목록의 "초과" 표시도 새 한도로 다시 계산
+$("max-lines").onchange = () => { if ($("repo").value.trim()) loadCommits(); };
+
+$("pick-folder").onclick = async () => {
+  $("pick-folder").disabled = true;
+  setStatus("폴더 선택 창을 열었습니다. 창에서 폴더를 고르세요.");
+  try {
+    const data = await api("/api/pick-folder", {initial: $("repo").value.trim()});
+    if (!data.path) { setStatus("폴더 선택을 취소했습니다."); return; }
+    $("repo").value = data.path;
+    setStatus("");
+    if (!data.git) {
+      showCommitError(`git 저장소가 아닙니다: ${data.path}`);
+      return;
+    }
+    await loadCommits();
+  } catch (e) {
+    setStatus(e.message, true);
+  } finally {
+    $("pick-folder").disabled = false;
+  }
 };
+
 $("review-file").onclick = () =>
   startReview({mode: "file", path: $("diff-path").value});
 
@@ -691,6 +887,7 @@ $("approve").onclick = () => sendDecision("approve");
 $("reject").onclick = () => sendDecision("reject");
 
 drawSteps(STEP_LABELS.map((label) => ({label, done: false})));
+$("repo").value = recallRepo();
 loadDiffs();
 </script>
 </body>

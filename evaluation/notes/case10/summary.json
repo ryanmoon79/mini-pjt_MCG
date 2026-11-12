@@ -1,0 +1,77 @@
+[
+  {
+    "run": 1,
+    "seconds": 16.4,
+    "reviewers": [
+      {
+        "name": "bug_reviewer",
+        "findings": 0,
+        "structured": "agent"
+      },
+      {
+        "name": "style_reviewer",
+        "findings": 0,
+        "structured": "agent"
+      }
+    ],
+    "errors": [],
+    "findings": [],
+    "summary": [
+      "normalize 함수와 unique_tags 함수에 타입 힌트를 추가하고, _clean 헬퍼 함수를 도입해 구현을 간소화했습니다.",
+      "보안·버그 지적은 없습니다.",
+      "스타일 지적은 없습니다.",
+      "리뷰 범위: app/utils.py; 건너뜀: 없음; 기준: 줄 길이 88칸(CiteReview ruff.toml), 변경 한도 300줄(기본값).",
+      "꼭 고쳐야 할 것은 없습니다."
+    ]
+  },
+  {
+    "run": 2,
+    "seconds": 9.0,
+    "reviewers": [
+      {
+        "name": "bug_reviewer",
+        "findings": 0,
+        "structured": "agent"
+      },
+      {
+        "name": "style_reviewer",
+        "findings": 0,
+        "structured": "agent"
+      }
+    ],
+    "errors": [],
+    "findings": [],
+    "summary": [
+      "normalize 함수와 unique_tags 함수가 리팩터링되어 _clean 헬퍼가 추가되고 타입 힌트가 적용되었습니다.",
+      "보안·버그 지적은 없습니다.",
+      "스타일 지적은 없습니다.",
+      "리뷰 범위: app/utils.py; 건너뜀: 없음; 기준: 줄 길이 88칸(CiteReview ruff.toml), 변경 한도 300줄(기본값).",
+      "꼭 고쳐야 할 것은 없습니다."
+    ]
+  },
+  {
+    "run": 3,
+    "seconds": 9.9,
+    "reviewers": [
+      {
+        "name": "bug_reviewer",
+        "findings": 0,
+        "structured": "agent"
+      },
+      {
+        "name": "style_reviewer",
+        "findings": 0,
+        "structured": "agent"
+      }
+    ],
+    "errors": [],
+    "findings": [],
+    "summary": [
+      "normalize 함수와 unique_tags 함수에 타입 힌트를 추가하고, _clean 헬퍼 함수를 도입해 구현을 간소화했습니다.",
+      "보안·버그 지적은 없습니다.",
+      "스타일 지적은 없습니다.",
+      "리뷰 범위: app/utils.py; 건너뜀: 없음; 기준: 줄 길이 88칸(CiteReview ruff.toml), 변경 한도 300줄(기본값).",
+      "꼭 고쳐야 할 것은 없습니다."
+    ]
+  }
+]

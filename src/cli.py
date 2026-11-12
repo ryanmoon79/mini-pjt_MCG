@@ -1,6 +1,7 @@
 """CLI 진입점.
 
     python -m src.cli review <diff 파일> [--verbose] [--batch] [--repo owner/repo]
+                             [--repo-dir 저장소 폴더] [--max-lines N]
 
 - 기본(대화형): 리뷰를 출력한 뒤 "PR에 코멘트로 게시할까요?"를 묻고(HITL),
   답에 따라 같은 thread_id로 재개합니다.
@@ -10,6 +11,12 @@
   평가 실행기(run_eval.py)와 같은 동작입니다.
 - `--verbose`: 내부 로그(가드레일·planner·도구 호출·출력 검증)와
   고치는 방법 전체를 붙입니다.
+- `--repo-dir`: 리뷰 대상 로컬 저장소 폴더. 그 저장소에 ruff 설정(ruff.toml·
+  .ruff.toml·pyproject.toml [tool.ruff])이 있으면 그 기준으로 검사하고,
+  `pyproject.toml [tool.citereview] max-lines`가 있으면 변경 한도로 씁니다.
+  (`--repo`는 GitHub 게시 대상 owner/repo라 이름을 나눴습니다.)
+- `--max-lines`: 변경 줄 수 한도(1~500). 지정하면 저장소 설정보다 우선합니다.
+  둘 다 없으면 기본 300줄 + CiteReview ruff.toml (평가와 같은 기준).
 """
 
 from __future__ import annotations
@@ -19,6 +26,7 @@ import json
 import sys
 
 from src.agent import resume_review, run_query
+from src.config import MAX_LINES_CAP, MAX_PY_CHANGED_LINES, REVIEW_MODELS, get_llm
 from src.render import render_verbose
 
 APPROVAL_HELP = "[y] 승인  [n] 거절  [i 번호...] 그 항목을 빼고 승인 (예: i 2 3)"
@@ -48,18 +56,42 @@ def main(argv: list[str] | None = None) -> int:
         "--batch", action="store_true", help="승인 대기까지만 실행하고 JSON 출력"
     )
     review.add_argument("--repo", help="게시 대상 저장소 owner/repo (허용 목록만 가능)")
+    review.add_argument(
+        "--repo-dir", help="리뷰 대상 로컬 저장소 폴더 (그 저장소의 ruff 설정을 따름)"
+    )
+    review.add_argument(
+        "--review-model",
+        choices=sorted(REVIEW_MODELS),
+        default="gpt-oss",
+        help="리뷰 모델 (기본 gpt-oss)",
+    )
+    review.add_argument(
+        "--max-lines",
+        type=int,
+        help=f"변경 줄 수 한도 (1~{MAX_LINES_CAP}, 기본 {MAX_PY_CHANGED_LINES})",
+    )
     args = parser.parse_args(argv)
+    if args.max_lines is not None and not 1 <= args.max_lines <= MAX_LINES_CAP:
+        parser.error(f"--max-lines는 1~{MAX_LINES_CAP} 사이여야 합니다")
 
     # Windows 콘솔에서도 한글이 깨지지 않게 UTF-8로 입출력
     for stream in (sys.stdout, sys.stdin):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8")
 
-    result = run_query(f"{args.diff} 를 리뷰해줘")
+    model_id = REVIEW_MODELS[args.review_model]
+    result = run_query(
+        f"{args.diff} 를 리뷰해줘",
+        llm=get_llm(model_id),
+        repo_dir=args.repo_dir,
+        max_lines=args.max_lines,
+    )
     if args.batch:
+        result["review_model"] = {"key": args.review_model, "id": model_id}
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
 
+    print(f"리뷰 모델: {args.review_model} ({model_id})")
     print(result["answer"])
     if args.verbose:
         print(render_verbose(result["trace"]))

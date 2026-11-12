@@ -1,0 +1,161 @@
+{
+  "answer": "CiteReview · data/eval_diffs/10_clean_refactor.diff\n리뷰: app/utils.py · 건너뜀: 없음 · 마스킹: 없음 · 기준: 줄 길이 88칸(CiteReview ruff.toml), 변경 한도 300줄(기본값)\n꼭 고쳐야 할 것 없음\n문제를 찾지 못했습니다.\n\n## 요약\n1. normalize 함수와 unique_tags 함수가 리팩터링되어 _clean 헬퍼가 추가되고 타입 힌트가 적용되었습니다.\n2. 보안·버그 지적은 없습니다.\n3. 스타일 지적은 없습니다.\n4. 리뷰 범위: app/utils.py; 건너뜀: 없음; 기준: 줄 길이 88칸(CiteReview ruff.toml), 변경 한도 300줄(기본값).\n5. 꼭 고쳐야 할 것은 없습니다.\n\n## 잠재 버그\n\n### 보안\n\n(없음)\n\n### 버그\n\n(없음)\n\n## 스타일 이슈\n\n(없음)\n\n## 추천 개선안\n\n지적 0건 (꼭 고칠 것 0 · 다듬을 것 0) · 근거가 확인되지 않아 제외된 지적 0건 (--verbose로 확인)",
+  "contexts": [],
+  "trace": [
+    {
+      "type": "start",
+      "t": "2026-11-12T04:22:21.029+00:00",
+      "elapsed_ms": 0,
+      "question": "data/eval_diffs/10_clean_refactor.diff 를 리뷰해줘",
+      "thread_id": "rv-c7f80653",
+      "criteria": "줄 길이 88칸(CiteReview ruff.toml), 변경 한도 300줄(기본값)"
+    },
+    {
+      "type": "node",
+      "t": "2026-11-12T04:22:21.331+00:00",
+      "elapsed_ms": 302,
+      "name": "input_guardrail"
+    },
+    {
+      "type": "guardrail",
+      "t": "2026-11-12T04:22:21.331+00:00",
+      "elapsed_ms": 302,
+      "stage": "input",
+      "status": "ok",
+      "reason": "",
+      "skipped": [],
+      "masked": {},
+      "security_findings": 0,
+      "py_changed_lines": 29
+    },
+    {
+      "type": "node",
+      "t": "2026-11-12T04:22:21.332+00:00",
+      "elapsed_ms": 303,
+      "name": "planner"
+    },
+    {
+      "type": "plan",
+      "t": "2026-11-12T04:22:21.332+00:00",
+      "elapsed_ms": 303,
+      "reviewers": [
+        "bug_reviewer",
+        "style_reviewer"
+      ],
+      "files": [
+        "app/utils.py"
+      ],
+      "reasons": {
+        "bug_reviewer": "모든 .py 변경에 실행",
+        "style_reviewer": "추가된 줄이 있음"
+      }
+    },
+    {
+      "type": "node",
+      "t": "2026-11-12T04:22:21.333+00:00",
+      "elapsed_ms": 303,
+      "name": "supervisor"
+    },
+    {
+      "type": "reviewer",
+      "t": "2026-11-12T04:22:24.333+00:00",
+      "elapsed_ms": 3303,
+      "name": "bug_reviewer",
+      "findings": 0,
+      "structured": "agent"
+    },
+    {
+      "type": "tool",
+      "t": "2026-11-12T04:22:26.175+00:00",
+      "elapsed_ms": 5145,
+      "name": "ruff_check",
+      "args": {
+        "file": "app/utils.py"
+      }
+    },
+    {
+      "type": "reviewer",
+      "t": "2026-11-12T04:22:27.304+00:00",
+      "elapsed_ms": 6275,
+      "name": "style_reviewer",
+      "findings": 0,
+      "structured": "agent"
+    },
+    {
+      "type": "node",
+      "t": "2026-11-12T04:22:27.733+00:00",
+      "elapsed_ms": 6704,
+      "name": "output_validate"
+    },
+    {
+      "type": "guardrail",
+      "t": "2026-11-12T04:22:27.821+00:00",
+      "elapsed_ms": 6791,
+      "stage": "output",
+      "before": 0,
+      "after": 0,
+      "after_c2": 0,
+      "dropped": [],
+      "raw_findings": [],
+      "c2_removed": [],
+      "line_length_by_code": 0,
+      "reviewer_line_length_dropped": 0
+    },
+    {
+      "type": "node",
+      "t": "2026-11-12T04:22:27.822+00:00",
+      "elapsed_ms": 6792,
+      "name": "synthesize"
+    },
+    {
+      "type": "guardrail",
+      "t": "2026-11-12T04:22:30.021+00:00",
+      "elapsed_ms": 8992,
+      "stage": "summary",
+      "attempts": 1,
+      "replaced": [],
+      "problems": {}
+    },
+    {
+      "type": "node",
+      "t": "2026-11-12T04:22:30.022+00:00",
+      "elapsed_ms": 8992,
+      "name": "render"
+    },
+    {
+      "type": "node",
+      "t": "2026-11-12T04:22:30.023+00:00",
+      "elapsed_ms": 8994,
+      "name": "hitl"
+    },
+    {
+      "type": "hitl",
+      "t": "2026-11-12T04:22:30.023+00:00",
+      "elapsed_ms": 8994,
+      "status": "waiting",
+      "thread_id": "rv-c7f80653",
+      "findings": 0
+    },
+    {
+      "type": "review",
+      "t": "2026-11-12T04:22:30.025+00:00",
+      "elapsed_ms": 8995,
+      "review": {
+        "summary": [
+          "normalize 함수와 unique_tags 함수가 리팩터링되어 _clean 헬퍼가 추가되고 타입 힌트가 적용되었습니다.",
+          "보안·버그 지적은 없습니다.",
+          "스타일 지적은 없습니다.",
+          "리뷰 범위: app/utils.py; 건너뜀: 없음; 기준: 줄 길이 88칸(CiteReview ruff.toml), 변경 한도 300줄(기본값).",
+          "꼭 고쳐야 할 것은 없습니다."
+        ],
+        "findings": [],
+        "recommendations": []
+      }
+    },
+    {
+      "type": "end",
+      "t": "2026-11-12T04:22:30.025+00:00",
+      "elapsed_ms": 8995
+    }
+  ]
+}

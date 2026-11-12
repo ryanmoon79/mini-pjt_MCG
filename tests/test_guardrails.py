@@ -17,7 +17,6 @@ from src.agent import resume_review, run_query
 from src.retriever import build_retriever
 from tests.fakes import call, fake, handoff
 
-SUMMARY = ["요약 1", "요약 2", "요약 3", "요약 4", "요약 5"]
 ALLOWED = "me/practice-repo"
 # AWS 문서 예시 형식의 가짜 키 (소스 파일이 비밀값 탐지에 걸리지 않게 이어 붙임)
 FAKE_KEY = "AKIA" + "IOSFODNN7EXAMPLE"
@@ -42,7 +41,14 @@ def _models(bug_findings=()):
         "style_reviewer": fake(
             call("ruff_check", file=""), call("ReviewerFindings", findings=[])
         ),
-        "synthesizer": fake(call("ReviewSummary", summary=SUMMARY)),
+        "synthesizer": fake(
+            call(
+                "SummaryDraft",
+                change="app/handler.py에 항목 처리 함수를 추가합니다.",
+                action="꼭 고쳐야 할 것은 없습니다.",
+                recommendations=[],
+            )
+        ),
     }
 
 

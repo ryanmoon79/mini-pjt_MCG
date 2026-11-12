@@ -17,7 +17,7 @@ SUMMARY_LINES = 5  # 요약은 정확히 5줄 (SERVICE.md 4번 정책 4)
 
 
 def check_summary(value: list[str]) -> list[str]:
-    """요약이 정확히 5줄이고 빈 줄이 없는지 확인합니다 (Review·ReviewSummary 공용)."""
+    """요약이 정확히 5줄이고 빈 줄이 없는지 확인합니다 (Review)."""
     if len(value) != SUMMARY_LINES:
         raise ValueError(
             f"요약은 정확히 {SUMMARY_LINES}줄이어야 합니다 (받은 줄 수: {len(value)})"
@@ -80,19 +80,24 @@ class SuggestionFix(BaseModel):
     )
 
 
-class ReviewSummary(BaseModel):
-    """종합 노드의 구조화 출력 (요약 5줄 + 추천 개선안)."""
+class SummaryDraft(BaseModel):
+    """종합 노드(LLM)의 구조화 출력: 요약 5줄 중 LLM이 쓰는 두 줄 + 추천 개선안.
 
-    summary: list[str] = Field(description="리뷰 요약, 정확히 5줄")
-    recommendations: list[str] = Field(
-        default_factory=list, description="리뷰 전체에 대한 추천 개선안"
+    요약 2·3·4줄(보안·버그 결과, 스타일 결과, 리뷰 범위·기준)은 코드가 지적 목록과
+    설정에서 만듭니다. LLM은 사실 확인이 diff로만 가능한 두 줄만 씁니다.
+    """
+
+    change: str = Field(
+        min_length=1,
+        description="1줄: 변경 내용 요약. diff로 확인되는 사실만, 추측·평가 금지",
     )
-
-    @field_validator("summary")
-    @classmethod
-    def _five_lines(cls, value: list[str]) -> list[str]:
-        """요약이 정확히 5줄인지 확인합니다 (Review와 같은 규칙)."""
-        return check_summary(value)
+    action: str = Field(
+        min_length=1,
+        description="5줄: 가장 먼저 할 일. 지적 목록 범위 안에서만, 평가성 문장 금지",
+    )
+    recommendations: list[str] = Field(
+        default_factory=list, description="리뷰 전체에 대한 추천 개선안 1~3개"
+    )
 
 
 class Review(BaseModel):
