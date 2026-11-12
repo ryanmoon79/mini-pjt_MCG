@@ -25,6 +25,7 @@ venv/
 .claude/settings.local.json
 # Claude Code 설정·외부 스킬(archify, 이후 Hallmark) — 제출물 아님 (CLAUDE.md 2번)
 .claude/
+skills-lock.json
 
 # OS·편집기
 .DS_Store

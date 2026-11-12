@@ -42,8 +42,8 @@
 | 평가 | RAGAS 4개 지표 (`faithfulness`, `answer_relevancy`, `context_precision`, `context_recall`). `ragas` 0.4.3은 **평가 전용 환경 `.venv-eval`(Python 3.12, `requirements-eval.txt`)**에 설치 — 과정 venv(Python 3.14)에서는 의존성 `scikit-network` 빌드가 실패함. `answer_relevancy`의 임베딩은 `amazon.titan-embed-text-v2:0` |
 | RAGAS 판정 LLM | `us.amazon.nova-pro-v1:0` (Bedrock, `us-east-1`) — **평가 전용 예외**. 리뷰 모델과 다른 모델로 자기 평가 편향을 줄임. 에이전트 본체에는 쓰지 않음 |
 | 관측 | `run_query`가 돌려주는 `trace`(결정적 이벤트 목록, `src/observability.py`)와 평가 실행 기록 `evaluation/runs/<실행ID>/<케이스>/trace.json`. `.env`에 `LANGSMITH_TRACING=true`·`LANGSMITH_API_KEY`가 있으면 LangChain이 LangSmith로도 보냄(연결 확인함: 2차 평가의 그래프 실행이 기록됨) |
-| 인터페이스 | **CLI 기본 + 시연용 로컬 웹 GUI**(`http.server`, 표준 라이브러리만, 구현 예정). 강사 확인: CLI로 충분하고 개발·테스트에는 GUI가 편함. 핵심 함수는 `answer`·`contexts`·`trace`를 돌려줌 (3-1번). 배포용 웹 서비스와 `POST /query` 서버는 확장 시 |
-| GUI 디자인 | Hallmark 스킬(https://github.com/nutlope/hallmark), **이 프로젝트에만 설치**(`-g` 없이, 구현 예정). 결과물은 독립 HTML/CSS라 `gui_server.py`가 그대로 제공 |
+| 인터페이스 | **CLI 기본 + 시연용 로컬 웹 GUI**(`http.server`, 표준 라이브러리만, `src/gui_server.py`). 강사 확인: CLI로 충분하고 개발·테스트에는 GUI가 편함. 핵심 함수는 `answer`·`contexts`·`trace`를 돌려줌 (3-1번). 배포용 웹 서비스와 `POST /query` 서버는 확장 시 |
+| GUI 디자인 | Hallmark 스킬(https://github.com/nutlope/hallmark), **이 프로젝트에만 설치**(`-g` 없이 설치함, 디자인 적용은 TASKS G2). 결과물은 독립 HTML/CSS라 `gui_server.py`가 그대로 제공 |
 | 제출 | 과제 저장소가 아닌 별도 GitHub 저장소 `mini-pjt_{본인이름}` (강사 확인), 제출 커밋 첫 줄은 `[제출] MiniPJT` |
 
 ---
@@ -69,7 +69,7 @@ mini-pjt_{본인이름}/
 │   ├── observability.py        # trace 이벤트 기록(시각 포함), 응답 시간 계산
 │   ├── config.py               # 모델·경로 상수, get_llm() 등 모델 생성 함수
 │   ├── cli.py                  # 진입점: review <diff 파일>, --batch, --verbose, --repo
-│   └── gui_server.py           # (구현 예정) 시연용 로컬 웹 GUI: http.server + HTML,
+│   └── gui_server.py           # 시연용 로컬 웹 GUI: http.server + HTML,
 │                               #   run_query·resume_review·render.py만 호출 (6번 "GUI")
 ├── data/                       # 사용한 문서·데이터
 │   ├── corpus/                 # RAG 원천 문서
@@ -102,13 +102,13 @@ mini-pjt_{본인이름}/
 ├── ruff.toml                   # ruff 규칙 설정 (에이전트 도구와 평가 diff 작성이 같이 씀)
 ├── .gitignore                  # .env, chroma_db/, *.sqlite, evaluation/runs/, .venv-eval/ 등
 ├── .env                        # 비밀값 — 커밋 금지
-├── run.bat                     # (구현 예정) 더블클릭으로 GUI 서버 실행 + 브라우저 열기
+├── run.bat                     # 더블클릭으로 GUI 서버 실행 + 브라우저 열기
 └── run.sh                      # (선택) 실행 스크립트
 ```
 
 > `tests/`와 `docs/`는 제출 구조의 `...`에 해당하는 추가 폴더로 둡니다(가정). 허용되지 않으면 `evaluation/tests/`, `evaluation/plan.md`로 옮깁니다.
 >
-> **Hallmark 스킬 설치 위치와 커밋 방침 (설치 시 확정):** 전역(`-g`)으로 설치하지 않고 이 프로젝트 폴더 안에만 설치합니다. 정확한 설치 경로는 설치 단계에서 Hallmark 저장소의 안내를 확인해 이 줄에 적습니다. 설치로 생기는 Node 의존성(`node_modules/` 등)과 스킬 자체 파일은 **제출물이 아니므로 커밋하지 않고 `.gitignore`에 추가**합니다. 커밋하는 것은 그 결과로 만든 화면(`gui_server.py` 안의 HTML/CSS)뿐입니다.
+> **Hallmark 스킬 설치 위치와 커밋 방침 (확정):** `npx skills add nutlope/hallmark --agent claude-code`(`-g` 없음)로 이 프로젝트에만 설치했고, 스킬 파일은 `.claude/skills/hallmark/`, 설치 기록은 루트의 `skills-lock.json`에 생깁니다. 둘 다 **제출물이 아니므로 `.gitignore`에 등록**(`.claude/`, `skills-lock.json`)했습니다. 브라우저 검사용 puppeteer·Chrome은 설치하지 않으며(정적 검사만), 커밋하는 것은 그 결과로 만든 화면(`gui_server.py` 안의 HTML/CSS)뿐입니다.
 
 ---
 
@@ -238,9 +238,10 @@ CiteReview 자신이 deprecated API를 쓰면 안 됩니다. 아래는 **사용 
 - `tests/`의 테스트는 **실제 LLM API를 호출하지 않습니다.** 고정 입력과 가짜 모델(`GenericFakeChatModel` 등)만 씁니다. 가드레일 테스트 목록은 [tests/README.md](tests/README.md)를 따릅니다.
 - 평가 데이터·지표·평가 코드 작업 전에는 **[evaluation/README.md](evaluation/README.md)를 먼저 읽습니다.** 평가 규칙은 그 문서에만 둡니다.
 
-### GUI (시연용 로컬 웹 화면, `src/gui_server.py` — 구현 예정)
+### GUI (시연용 로컬 웹 화면, `src/gui_server.py`)
 - **표준 라이브러리만** 씁니다(`http.server`, `threading`, `json`, `subprocess`로 `git` 호출 등). 새 Python 라이브러리를 들이지 않습니다.
 - **`run_query`, `resume_review`, `src/render.py`만 호출합니다.** 에이전트·CLI·평가 코드는 GUI 때문에 고치지 않습니다.
+  - 진행 표시: `run_query`는 끝날 때 trace를 돌려주므로, GUI 프로세스 안에서만 `TraceRecorder.add`를 감싸 노드 진입 이벤트를 작업별로 복사합니다(`contextvars`로 구분). 에이전트 코드 파일은 고치지 않습니다.
 - 리뷰는 서버의 **별도 스레드**에서 실행하고, 화면은 그 리뷰의 `trace` 노드 진입 이벤트를 **폴링**해 진행 상황(입력 가드레일 → planner → 리뷰어 → 출력 검증 → 종합 → 렌더링 → 승인 대기)을 보여 줍니다.
 - HITL 승인 대기 중인 `thread_id`는 **서버 메모리**에 보관하고, 승인/거절 버튼이 `resume_review(thread_id, 결정)`을 부릅니다. 게시는 CLI와 같이 **dry-run + 허용 목록**만입니다.
 - 서버는 **로컬(`127.0.0.1`)에서만** 엽니다. 외부 주소로 바인딩하지 않습니다.

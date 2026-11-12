@@ -55,8 +55,9 @@
 
 GUI 규칙은 [CLAUDE.md](CLAUDE.md) 6번 "GUI"를 따릅니다. 에이전트·CLI·평가 코드는 고치지 않습니다.
 
-- [ ] **G1 GUI 1단계: 기능** (남은 순서 6) — Hallmark 설치(Node 확인, `-g` 없이 이 프로젝트에만, puppeteer·Chrome이 없으면 정적 검사만), `src/gui_server.py`(`http.server`, 127.0.0.1)와 `run.bat`. 단순 HTML로 ① 저장소 폴더 → 커밋 목록(`.py` 변경 줄 수, 300줄 초과 표시) 선택 또는 diff 파일 선택 ② 리뷰 실행(별도 스레드)·trace 노드 진입 폴링으로 진행 표시 ③ 렌더러 결과를 고정폭으로 표시 ④ 승인/거절 버튼(`resume_review`, dry-run + 허용 목록). Hallmark 설치 경로와 `.gitignore` 처리를 CLAUDE.md 2번에 확정해 적음.
+- [x] **G1 GUI 1단계: 기능** (남은 순서 6) — Hallmark 설치(Node 확인, `-g` 없이 이 프로젝트에만, puppeteer·Chrome이 없으면 정적 검사만), `src/gui_server.py`(`http.server`, 127.0.0.1)와 `run.bat`. 단순 HTML로 ① 저장소 폴더 → 커밋 목록(`.py` 변경 줄 수, 300줄 초과 표시) 선택 또는 diff 파일 선택 ② 리뷰 실행(별도 스레드)·trace 노드 진입 폴링으로 진행 표시 ③ 렌더러 결과를 고정폭으로 표시 ④ 승인/거절 버튼(`resume_review`, dry-run + 허용 목록). Hallmark 설치 경로와 `.gitignore` 처리를 CLAUDE.md 2번에 확정해 적음.
   - 확인 **(실제 LLM)**: 03번 diff 리뷰 결과가 화면에 CLI와 같은 형식으로 나오고, 19번 diff는 승인 대기에서 멈춘 뒤 허용 목록 밖 저장소로 승인하면 차단 메시지가 나온다.
+  - 기록: 03번은 진행 7단계가 순서대로 켜진 뒤 CLI와 같은 렌더러 출력(`run_query`의 answer)이 나오고 승인 대기. 19번은 보안 3·버그 1 지적 뒤 승인 대기 → `someone/not-allowed`로 승인하면 "게시 허용 목록에 없음"으로 차단, 같은 작업에 두 번째 결정은 거부. 커밋 모드로 day06(`b465f63`, 338줄)을 고르면 목록에 "300줄 초과"가 표시되고 LLM 없이 거절. 서버는 `127.0.0.1`에만 바인딩(netstat 확인), `run.bat` 실행 확인. Hallmark는 `.claude/skills/hallmark/`에 설치(`-g`·puppeteer·Chrome 없음)
 - [ ] **G2 GUI 2단계: 디자인** (남은 순서 7) — Hallmark custom 또는 차분한 테마 하나로 화면 정리(테마 비교 생략). G1의 버튼·입력·핸들러는 그대로 유지. 히어로·마케팅 문구·구독 폼·페이지 끝 CTA 없음.
   - 확인: G1의 확인 두 가지가 디자인 적용 뒤에도 그대로 되고, 결과 영역의 줄 번호·`>`·`-`/`+` 정렬이 CLI 출력과 같다.
 - [ ] **G3 시연 시나리오 확인** (남은 순서 8) — GUI가 완성되면 docs/plan.md 2절 시연 시나리오에 GUI 장면을 넣을지 확인.

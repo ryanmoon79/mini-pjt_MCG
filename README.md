@@ -110,7 +110,13 @@ uv pip install --python .venv-eval/Scripts/python.exe -r requirements-eval.txt
 .venv-eval/Scripts/python.exe evaluation/run_ragas.py <실행ID>
 ```
 
-**GUI (구현 예정):** 시연용 로컬 웹 화면(폴더·커밋 선택 → 리뷰 → 승인/거절 버튼). 실행 명령은 구현 후 적습니다.
+**6. 시연용 로컬 GUI** — 표준 라이브러리 `http.server`로 `127.0.0.1:8765`에서만 열립니다. CLI와 같은 `run_query`·`resume_review`를 씁니다.
+
+```bash
+python -m src.gui_server      # 브라우저가 열림 (Windows는 run.bat 더블클릭)
+```
+
+저장소 폴더를 넣어 커밋을 고르거나(`.py` 변경 줄 수와 300줄 초과 표시) diff 파일을 고르면, 진행 단계(입력 가드레일 → planner → 리뷰어 → 출력 검증 → 종합 → 렌더링 → 승인 대기)와 CLI와 같은 고정폭 결과가 나오고, 승인/거절 버튼으로 dry-run 게시를 결정합니다.
 
 ## RAGAS 평가 결과
 
@@ -168,7 +174,7 @@ uv pip install --python .venv-eval/Scripts/python.exe -r requirements-eval.txt
 - **사내 LLM 이식:** `config.get_llm()`만 교체하고 같은 평가셋(본 세트 + 추가 세트)을 다시 실행해 통과율·일치율을 비교
 - LangChain 1.x 문서 코퍼스 추가 (지금은 PEP 8 5개 섹션 + 매핑표)
 - 실제 PR 코멘트 게시 (지금은 dry-run), GitHub MCP PR 조회(C1)
-- 시연용 로컬 GUI (`http.server`, 구현 예정)
+- GUI 디자인 다듬기 (Hallmark 적용 이후의 추가 개선), 리뷰 기록 보관
 - 그 밖에: 케이스마다 반복 실행과 다수결, 줄 단위 정답 라벨과 탐지율·오탐률, 범용 LLM 리뷰(기준선)와의 비교, 별도 보안 리뷰어, Java 지원
 
 ## 핵심 코드 위치
@@ -184,4 +190,5 @@ uv pip install --python .venv-eval/Scripts/python.exe -r requirements-eval.txt
 | [src/schema.py](src/schema.py) | `Evidence` → `Finding` → `Review` | 출력 스키마 |
 | [src/render.py](src/render.py) | `render_review` | 터미널 Markdown 렌더링 |
 | [evaluation/run_eval.py](evaluation/run_eval.py) | `judge_case`, `alignment_counts`, `main` | 인-아웃 평가, 근거-지적 일치율 |
+| [src/gui_server.py](src/gui_server.py) | `list_commits`, `start_job`, `decide` | 시연용 로컬 GUI (커밋 목록, 별도 스레드 리뷰, 승인/거절) |
 | [evaluation/run_ragas.py](evaluation/run_ragas.py) | `main` | RAGAS 4개 지표 |
