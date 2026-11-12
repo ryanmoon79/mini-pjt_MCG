@@ -1,0 +1,24 @@
+diff --git a/app/tools.py b/app/tools.py
+--- a/app/tools.py
++++ b/app/tools.py
+@@ -1,14 +1,17 @@
+ """리뷰 도구 모음 (교육용 더미 데이터입니다, CiteReview 평가 케이스 11)."""
+ 
+ 
+-def count_lines(code):
++def count_lines(code: str) -> int:
++    """코드의 줄 수를 센다."""
+     return len(code.splitlines())
+ 
+ 
+-def longest_line(code):
++def longest_line(code: str) -> int:
++    """가장 긴 줄의 길이를 돌려준다. 빈 코드는 0."""
+     lines = code.splitlines() or [""]
+     return max(len(line) for line in lines)
+ 
+ 
+-def has_todo(code):
++def has_todo(code: str) -> bool:
++    """코드에 TODO 표시가 남아 있는지 확인한다."""
+     return "TODO" in code

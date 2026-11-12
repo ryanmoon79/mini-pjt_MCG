@@ -1,0 +1,33 @@
+diff --git a/app/checker.py b/app/checker.py
+new file mode 100644
+--- /dev/null
++++ b/app/checker.py
+@@ -0,0 +1,28 @@
++"""리뷰 결과 검사기 (교육용 더미 데이터입니다, CiteReview 평가 케이스 17)."""
++
++from __future__ import annotations
++
++MAX_LENGTH = 2000
++REQUIRED_KEYS = ("summary", "findings")
++
++
++def has_required_keys(result: dict) -> bool:
++    """필수 키가 모두 있는지 확인한다."""
++    return all(key in result for key in REQUIRED_KEYS)
++
++
++def is_too_long(text: str) -> bool:
++    """출력이 너무 긴지 확인한다."""
++    return len(text) > MAX_LENGTH
++
++
++def validate(result: dict | None, text: str) -> bool:
++    """리뷰 결과가 비었거나, 키가 빠졌거나, 너무 길면 False."""
++    text = text.strip()
++    is_missing = result == None or not text or not has_required_keys(result) or is_too_long(text)
++    return not is_missing
++
++
++def validate_all(results: list[dict], texts: list[str]) -> list[bool]:
++    """여러 결과를 한꺼번에 검사한다."""
++    return [validate(r, t) for r, t in zip(results, texts)]

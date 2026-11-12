@@ -1,0 +1,26 @@
+diff --git a/src/main/java/App.java b/src/main/java/App.java
+new file mode 100644
+--- /dev/null
++++ b/src/main/java/App.java
+@@ -0,0 +1,21 @@
++// 교육용 더미 데이터입니다 (CiteReview 평가 케이스 12)
++package com.example;
++
++import java.util.List;
++import java.util.Map;
++
++public class App {
++    public static int countLines(String code) {
++        return code.split("\n").length;
++    }
++
++    public static List<String> tags(String raw) {
++        return List.of(raw.split(","));
++    }
++
++    public static void main(String[] args) {
++        System.out.println(countLines("a\nb"));
++        System.out.println(tags("x,y"));
++        System.out.println(Map.of("lines", countLines("a")));
++    }
++}

@@ -1,0 +1,64 @@
+diff --git a/app/pipeline.py b/app/pipeline.py
+new file mode 100644
+--- /dev/null
++++ b/app/pipeline.py
+@@ -0,0 +1,59 @@
++"""문서 요약 파이프라인.
++
++교육용 더미 데이터입니다 (CiteReview 평가 케이스 22).
++"""
++
++from __future__ import annotations
++
++import json
++import logging
++from collections.abc import Iterable
++from dataclasses import dataclass, field
++from pathlib import Path
++
++from langchain_core.documents import Document
++from langchain_core.output_parsers import StrOutputParser
++from langchain_core.prompts import (
++    ChatPromptTemplate,
++    HumanMessagePromptTemplate,
++    SystemMessagePromptTemplate,
++)
++from langchain_core.runnables import Runnable, RunnableLambda, RunnablePassthrough
++
++LOGGER = logging.getLogger(__name__)
++
++
++@dataclass
++class PipelineConfig:
++    """파이프라인 설정."""
++
++    system_prompt: str = "문서를 세 문장으로 요약한다."
++    output_dir: Path = field(default_factory=lambda: Path("out"))
++
++
++def build_prompt(config: PipelineConfig) -> ChatPromptTemplate:
++    """시스템·사용자 메시지로 프롬프트를 만든다."""
++    return ChatPromptTemplate.from_messages(
++        [
++            SystemMessagePromptTemplate.from_template(config.system_prompt),
++            HumanMessagePromptTemplate.from_template("{text}"),
++        ]
++    )
++
++
++def build_chain(config: PipelineConfig, llm: Runnable) -> Runnable:
++    """문서 본문을 꺼내 요약 문자열로 바꾸는 LCEL 체인."""
++    to_text = RunnableLambda(lambda doc: {"text": doc.page_content})
++    prompt = build_prompt(config)
++    return to_text | RunnablePassthrough() | prompt | llm | StrOutputParser()
++
++
++def save_summaries(docs: Iterable[Document], chain: Runnable, path: Path) -> int:
++    """문서마다 요약해 JSON으로 저장하고 저장한 건수를 돌려준다."""
++    rows = [
++        {"source": d.metadata.get("source"), "summary": chain.invoke(d)}
++        for d in docs
++    ]
++    path.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
++    LOGGER.info("saved %d summaries", len(rows))
++    return len(rows)

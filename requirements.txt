@@ -1,0 +1,23 @@
+# CiteReview 의존성 — 과정 venv(Python 3.14) 기준, LangChain/LangGraph 1.x 범위로 고정
+# RAGAS는 평가 전용 환경에서 따로 설치합니다: requirements-eval.txt 참고
+
+# ── LangChain / LangGraph 1.x ─────────────────────────────
+langchain>=1.4,<2
+langchain-core>=1.7,<2
+langchain-aws>=1.9,<2
+langchain-community>=0.4,<0.5        # BM25Retriever
+langchain-chroma>=1.1,<2
+langgraph>=1.2,<2
+langgraph-supervisor>=0.0.31,<0.1
+
+# ── RAG ───────────────────────────────────────────────────
+chromadb>=1.5,<2
+rank-bm25>=0.2,<0.3
+
+# ── 공통 ──────────────────────────────────────────────────
+pydantic>=2.7,<3
+python-dotenv>=1.0
+
+# ── 정적 분석·테스트 ──────────────────────────────────────
+ruff>=0.17,<0.18
+pytest>=8.4

@@ -1,0 +1,30 @@
+diff --git a/app/legacy_agent.py b/app/legacy_agent.py
+new file mode 100644
+--- /dev/null
++++ b/app/legacy_agent.py
+@@ -0,0 +1,25 @@
++"""구버전 에이전트 코드 (교육용 더미 데이터입니다, CiteReview 평가 케이스 16)."""
++
++from langgraph.prebuilt import create_react_agent
++from langchain.agents import AgentExecutor
++
++
++def build_new_style(model, tools):
++    """그래프 방식 에이전트를 만든다."""
++    return create_react_agent(model, tools)
++
++
++def build_old_style(agent, tools):
++    """AgentExecutor로 감싼 에이전트를 만든다."""
++    return AgentExecutor(agent=agent, tools=tools, verbose=True)
++
++
++def run(executor, question: str) -> str:
++    """질문 하나를 실행한다."""
++    return executor.invoke({"input": question})["output"]
++
++
++def run_graph(graph, question: str) -> str:
++    """그래프 에이전트로 질문 하나를 실행한다."""
++    result = graph.invoke({"messages": [("user", question)]})
++    return result["messages"][-1].content

@@ -1,0 +1,32 @@
+# 비밀값 — 절대 커밋하지 않음
+.env
+.env.*
+
+# 실행 중 생기는 상태 파일 (벡터 DB, 체크포인터, 장기 기억 저장소)
+chroma_db/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# 평가 실행 기록 (리포트만 커밋하고 원시 기록은 제외)
+evaluation/runs/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.venv-eval/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# 로컬 도구 상태
+.ouroboros/
+.claude/settings.local.json
+# Claude Code 설정·외부 스킬(archify, 이후 Hallmark) — 제출물 아님 (CLAUDE.md 2번)
+.claude/
+
+# OS·편집기
+.DS_Store
+Thumbs.db
+.vscode/

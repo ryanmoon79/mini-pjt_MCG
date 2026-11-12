@@ -1,0 +1,29 @@
+diff --git a/app/limits.py b/app/limits.py
+new file mode 100644
+--- /dev/null
++++ b/app/limits.py
+@@ -0,0 +1,24 @@
++"""요청 한도와 재시도 설정.
++
++교육용 더미 데이터입니다 (CiteReview 평가 케이스 21).
++"""
++
++from __future__ import annotations
++
++MAX_REQUESTS_PER_MINUTE = 60
++DEFAULT_TIMEOUT_SECONDS = 30
++RETRYABLE_STATUS_CODES = (429, 500, 502, 503, 504)
++LIMIT_EXCEEDED_MESSAGE = "Request limit hit; wait for the window to reset and retry."
++USER_AGENT_TEMPLATE = "citereview-demo/{version} (+https://example.invalid/docs/limits)"
++BACKOFF_HINT_MESSAGE = "Backing off before the next attempt to respect the quota"
++RATE_LIMIT_HEADER_NAMES = ("x-ratelimit-limit", "x-ratelimit-remaining", "retry-after")
++
++
++def backoff_seconds(attempt: int, base: float = 1.5, cap: float = 30.0) -> float:
++    """재시도 횟수에 따라 기다릴 시간(초)을 지수적으로 늘리되 상한을 넘지 않게 한다."""
++    return min(cap, base * (2 ** max(attempt, 0)))
++
++
++def should_retry(status_code: int, attempt: int, max_attempts: int = 5) -> bool:
++    """재시도할 상태 코드이고 시도 횟수가 남아 있으면 True."""
++    return status_code in RETRYABLE_STATUS_CODES and attempt < max_attempts

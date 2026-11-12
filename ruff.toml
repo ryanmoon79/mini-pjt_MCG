@@ -1,0 +1,11 @@
+# CiteReview ruff 설정 — ruff_check 도구와 평가 diff 작성이 같은 파일을 씁니다 (CLAUDE.md 1번).
+# 기본 규칙(E4, E7, E9, F)만으로는 줄 길이·이름·import 순서를 못 잡으므로 E·W·F·I·N을 켭니다.
+# E1xx·E2xx·E3xx는 preview 규칙이라 preview를 켜지 않습니다 (ruff 0.17.4 확인).
+line-length = 88
+target-version = "py312"
+# 평가 데이터와 테스트 픽스처는 일부러 스타일 위반을 넣으므로 `ruff check`·`ruff format` 대상에서 뺍니다.
+# (ruff_check 도구는 `--stdin-filename`으로 검사하므로 이 제외의 영향을 받지 않습니다.)
+extend-exclude = ["data", "tests/fixtures"]
+
+[lint]
+select = ["E", "W", "F", "I", "N"]

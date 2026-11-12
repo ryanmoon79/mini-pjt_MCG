@@ -1,0 +1,25 @@
+diff --git a/app/stats.py b/app/stats.py
+new file mode 100644
+--- /dev/null
++++ b/app/stats.py
+@@ -0,0 +1,20 @@
++"""리뷰 점수 통계 (교육용 더미 데이터입니다, CiteReview 평가 케이스 20)."""
++
++
++def total(scores: list[float]) -> float:
++    """점수 합계."""
++    return sum(scores)
++
++
++def average(scores: list[float]) -> float:
++    return sum(scores) / len(scores)
++
++
++def best(scores: list[float]) -> float:
++    """가장 높은 점수. 빈 목록이면 0."""
++    return max(scores, default=0.0)
++
++
++def summary(scores: list[float]) -> dict[str, float]:
++    """합계·평균·최고점."""
++    return {"total": total(scores), "average": average(scores), "best": best(scores)}

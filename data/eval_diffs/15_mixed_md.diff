@@ -1,0 +1,39 @@
+diff --git a/app/summary.py b/app/summary.py
+new file mode 100644
+--- /dev/null
++++ b/app/summary.py
+@@ -0,0 +1,19 @@
++"""리뷰 요약 도우미 (교육용 더미 데이터입니다, CiteReview 평가 케이스 15)."""
++
++from __future__ import annotations
++
++SUMMARY_LINES = 5
++EMPTY_MESSAGE = "요약할 내용이 없습니다."
++HEADER_TEMPLATE = "CiteReview 리뷰 요약 — 변경 파일 {count}개, 지적 {findings}건, 근거 확인 완료"
++
++
++def make_header(count: int, findings: int) -> str:
++    """요약 머리말을 만든다."""
++    return HEADER_TEMPLATE.format(count=count, findings=findings)
++
++
++def trim(lines: list[str]) -> list[str]:
++    """요약을 정해진 줄 수로 자른다."""
++    if not lines:
++        return [EMPTY_MESSAGE]
++    return lines[:SUMMARY_LINES]
+diff --git a/README.md b/README.md
+new file mode 100644
+--- /dev/null
++++ b/README.md
+@@ -0,0 +1,10 @@
++# 리뷰 요약 도우미
++
++교육용 더미 데이터입니다 (CiteReview 평가 케이스 15).
++
++- `make_header`: 요약 머리말을 만든다.
++- `trim`: 요약을 다섯 줄로 자른다.
++
++## 사용법
++
++`trim(["a", "b"])`처럼 호출한다.

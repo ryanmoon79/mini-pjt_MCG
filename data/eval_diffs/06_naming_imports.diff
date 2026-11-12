@@ -1,0 +1,30 @@
+diff --git a/app/loader.py b/app/loader.py
+new file mode 100644
+--- /dev/null
++++ b/app/loader.py
+@@ -0,0 +1,25 @@
++# 문서 로더 (교육용 더미 데이터입니다, CiteReview 평가 케이스 06)
++from pathlib import Path
++import os
++import json
++
++ENCODING = "utf-8"
++INDEX_NAME = "index.json"
++DATA_DIR = Path(os.environ.get("DATA_DIR", "data"))
++
++
++
++def loadDocs(path: str) -> list[dict]:
++    """JSON Lines 파일에서 문서 목록을 읽는다."""
++    docs = []
++    for line in Path(path).read_text(encoding=ENCODING).splitlines():
++        if line.strip():
++            docs.append(json.loads(line))
++    return docs
++
++
++def save_index(docs: list[dict]) -> Path:
++    """문서 id 목록을 색인 파일로 저장한다."""
++    target = DATA_DIR / INDEX_NAME
++    target.write_text(json.dumps([d["id"] for d in docs]), encoding=ENCODING)
++    return target

@@ -1,0 +1,33 @@
+diff --git a/app/session.py b/app/session.py
+--- a/app/session.py
++++ b/app/session.py
+@@ -1,29 +1,27 @@
+ """세션 조회 (교육용 더미 데이터입니다, CiteReview 평가 케이스 13)."""
+ 
+ from __future__ import annotations
+ 
+ SESSIONS: dict[str, dict] = {}
+ ADMIN_ROLE = "admin"
+ SESSION_TTL_SECONDS = 1800
+ 
+ 
+ def find_user(session_id: str) -> dict | None:
+     """세션 id로 사용자 정보를 찾는다. 없으면 None."""
+     session = SESSIONS.get(session_id)
+     if session is None:
+         return None
+     return session.get("user")
+ 
+ 
+ def get_user_name(session_id: str) -> str | None:
+     """세션의 사용자 이름을 돌려준다."""
+     user = find_user(session_id)
+-    if user is None:
+-        return None
+     return user["name"]
+ 
+ 
+ def is_admin(session_id: str) -> bool:
+     """관리자 세션인지 확인한다."""
+     user = find_user(session_id) or {}
+     return user.get("role") == ADMIN_ROLE

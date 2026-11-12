@@ -1,0 +1,29 @@
+diff --git a/app/graph.py b/app/graph.py
+new file mode 100644
+--- /dev/null
++++ b/app/graph.py
+@@ -0,0 +1,24 @@
++"""리뷰 에이전트 그래프 (교육용 더미 데이터입니다, CiteReview 평가 케이스 05)."""
++
++from langgraph.prebuilt import create_react_agent
++
++
++def build_graph(model, tools):
++    """도구를 쓰는 ReAct 에이전트 그래프를 만든다."""
++    return create_react_agent(model, tools, prompt="너는 코드 리뷰 도우미다.")
++
++
++def run(graph, question: str) -> str:
++    """질문 하나를 실행해 마지막 메시지를 돌려준다."""
++    result = graph.invoke({"messages": [("user", question)]})
++    return result["messages"][-1].content
++
++
++def run_many(graph, questions: list[str]) -> list[str]:
++    """여러 질문을 차례로 실행한다."""
++    return [run(graph, q) for q in questions]
++
++
++def describe(graph) -> str:
++    """그래프 노드 이름을 쉼표로 이어 돌려준다."""
++    return ", ".join(graph.get_graph().nodes)

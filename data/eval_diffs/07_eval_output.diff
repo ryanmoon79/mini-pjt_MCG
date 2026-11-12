@@ -1,0 +1,30 @@
+diff --git a/app/calculator.py b/app/calculator.py
+new file mode 100644
+--- /dev/null
++++ b/app/calculator.py
+@@ -0,0 +1,25 @@
++"""LLM에게 계산식을 받아 값을 구하는 계산기.
++
++교육용 더미 데이터입니다 (CiteReview 평가 케이스 07).
++"""
++
++from langchain_core.prompts import ChatPromptTemplate
++
++PROMPT = ChatPromptTemplate.from_template(
++    "다음 문제를 파이썬 계산식 한 줄로만 바꿔 주세요: {question}"
++)
++
++
++def compute(llm_output: str) -> float:
++    return eval(llm_output)
++
++
++def solve(llm, question: str) -> float:
++    """문제를 계산식으로 바꿔 계산한다."""
++    expression = (PROMPT | llm).invoke({"question": question}).content
++    return compute(expression.strip())
++
++
++def solve_all(llm, questions: list[str]) -> list[float]:
++    """여러 문제를 차례로 푼다."""
++    return [solve(llm, q) for q in questions]

@@ -1,0 +1,31 @@
+diff --git a/app/parser.py b/app/parser.py
+new file mode 100644
+--- /dev/null
++++ b/app/parser.py
+@@ -0,0 +1,26 @@
++"""LLM 응답 파서.
++
++교육용 더미 데이터입니다 (CiteReview 평가 케이스 01).
++"""
++
++from __future__ import annotations
++
++from typing import Any
++
++DEFAULT_ANSWER = "응답이 없습니다."
++
++
++def parse_answer(result: dict[str, Any]) -> str:
++    """에이전트 실행 결과에서 최종 답변 문자열을 꺼낸다.
++
++    result 예: {"output": " 답변 ", "steps": [...]}
++    """
++    answer = result.get("output").strip()
++    if not answer:
++        return DEFAULT_ANSWER
++    return answer
++
++
++def parse_steps(result: dict[str, Any]) -> list[str]:
++    """중간 단계 이름 목록을 꺼낸다."""
++    return [str(step) for step in result.get("steps", [])]

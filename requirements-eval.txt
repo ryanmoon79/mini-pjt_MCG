@@ -1,0 +1,11 @@
+# 평가 전용 환경 (.venv-eval, Python 3.12) — evaluation/run_ragas.py 실행용
+# 과정 venv(Python 3.14)에는 ragas 의존성 scikit-network 휠이 없어 별도 환경으로 분리함.
+# 만드는 법:
+#   uv venv .venv-eval --python 3.12
+#   uv pip install --python .venv-eval/Scripts/python.exe -r requirements-eval.txt
+ragas==0.4.3
+langchain-aws==1.9.3
+boto3==1.44.0
+python-dotenv==1.2.4
+# ragas 0.4.3은 langchain_community.chat_models.vertexai를 import하는데 0.4.2에서 제거됨 → 0.4.1로 고정
+langchain-community==0.4.1

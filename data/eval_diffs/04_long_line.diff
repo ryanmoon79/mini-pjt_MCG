@@ -1,0 +1,26 @@
+diff --git a/app/prompts.py b/app/prompts.py
+new file mode 100644
+--- /dev/null
++++ b/app/prompts.py
+@@ -0,0 +1,21 @@
++"""리뷰 프롬프트 모음.
++
++교육용 더미 데이터입니다 (CiteReview 평가 케이스 04).
++"""
++
++from langchain_core.prompts import ChatPromptTemplate
++
++REVIEW_PROMPT = ChatPromptTemplate.from_template(
++    "You are a careful Python code reviewer. List every bug in this diff with its line: {diff}"
++)
++
++SUMMARY_PROMPT = ChatPromptTemplate.from_template(
++    "Summarize the review in five short lines: {review}"
++)
++
++PROMPTS = {"review": REVIEW_PROMPT, "summary": SUMMARY_PROMPT}
++
++
++def get_prompt(name: str) -> ChatPromptTemplate:
++    """이름으로 프롬프트를 찾는다. 없으면 KeyError."""
++    return PROMPTS[name]

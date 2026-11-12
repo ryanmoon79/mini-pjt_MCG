@@ -1,0 +1,25 @@
+diff --git a/app/runner.py b/app/runner.py
+new file mode 100644
+--- /dev/null
++++ b/app/runner.py
+@@ -0,0 +1,20 @@
++"""git 로그 조회 도구 (교육용 더미 데이터입니다, CiteReview 평가 케이스 08)."""
++
++import subprocess
++
++from langchain_core.tools import tool
++
++
++@tool
++def git_log(branch: str) -> str:
++    """지정한 브랜치의 최근 커밋 로그를 돌려준다."""
++    result = subprocess.run(f"git log {branch} -n 5", shell=True, capture_output=True)
++    return result.stdout.decode("utf-8", errors="replace")
++
++
++@tool
++def git_status() -> str:
++    """작업 폴더 상태를 돌려준다."""
++    result = subprocess.run(["git", "status", "--short"], capture_output=True)
++    output = result.stdout.decode("utf-8", errors="replace")
++    return output or "변경 없음"
