@@ -73,6 +73,12 @@ BUG_PROMPT = f"""당신은 LangChain/LangGraph 1.x Python 코드 리뷰어
   langchain.retrievers, langchain.chains 등) import가 보이면
   search_evidence로 매핑표를 찾아 doc 근거로 인용하고, 제거된 API면 bug로 지적합니다.
 - 논리 버그(None 처리, 경계값, 빈 입력 등)는 code 근거로 지적합니다.
+- **bug 지적의 message에는 "어떤 입력·호출 경로에서 어떻게 실패하는지"를 반드시
+  씁니다** (예: "`items`가 빈 리스트로 들어오면 15행 `items[0]`에서 IndexError").
+  그런 실패 경로를 이 diff의 코드로 구체적으로 쓸 수 없으면 지적하지 않습니다.
+  추론하다가 "실제로는 동작한다", "버그 없음"이라는 결론이 나오면 그 지적은 내지
+  않습니다(추론 과정을 message에 적지 않음). 주석으로 의도를 밝힌 설계 선택은 bug가
+  아닙니다.
 - 검증 없는 eval·exec, shell=True subprocess 같은 위험은 security로 지적합니다.
 - 예외 처리(빈 except, 삼킨 예외, 실패 시 None을 그대로 쓰는 코드)를 확인합니다.
 - **논리 버그, deprecated API, 예외 처리, 보안에 집중합니다.** 줄 길이·포맷 같은

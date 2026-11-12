@@ -501,3 +501,61 @@ def verify_api_claims(
             }
         )
     return kept, dropped
+
+
+# ── 출력 검사: 자기부정 지적 (round3 부록 2 — 본문이 스스로 버그가 없다고 결론) ──
+
+# 지적 본문이 "결론으로" 버그가 없다·실제로는 동작한다고 말하는 표현.
+# 양보절("문제가 없지만 None이면 실패")은 걸리지 않도록 문장 끝(마침표·줄 끝)의
+# 결론만 봅니다.
+SELF_NEGATION_PATTERNS = {
+    "실제 버그 없음": re.compile(
+        r"실제(로는|로)?\s*(버그|문제)(가|는)?\s*(없(음|습니다|다)|아닙니다)"
+    ),
+    "실제로는 동작": re.compile(r"실제로는\s*(정상\s*)?(동작|작동)(합니다|한다|함)"),
+    "문제없음 결론": re.compile(
+        r"(문제|버그)\s*(가|는)?\s*없(습니다|음|다|으므로 괜찮)(?=\s*[.。!]|\s*$)"
+    ),
+    "버그 아님": re.compile(r"버그(가|는)?\s*아닙니다|버그가?\s*아님(?=\s*[.。]|\s*$)"),
+    "괜찮다는 결론": re.compile(r"(이므로|므로|때문에)\s*괜찮습니다"),
+}
+
+
+def self_negation(message: str) -> str | None:
+    """지적 본문의 자기부정 결론 패턴 이름 (없으면 None)."""
+    for name, pattern in SELF_NEGATION_PATTERNS.items():
+        if pattern.search(message):
+            return name
+    return None
+
+
+def drop_self_negated(findings: list[Finding]) -> tuple[list[Finding], list[dict]]:
+    """bug·security 지적 중 본문이 스스로 "실제 버그 없음"이라고 결론 낸 것을 제거.
+
+    결정적 검사입니다(LLM 없음).
+
+    리뷰어가 추론 과정을 그대로 적다가 "재검토: … 실제 버그 없음"으로 끝낸 지적
+    (round3 Sonnet: day07 113행, day05 567행)을 걸러 냅니다. 입력 가드레일이 만든
+    security 지적에는 쓰지 않습니다(호출하는 쪽이 리뷰어 지적만 넘김).
+
+    Returns:
+        (유지할 지적, 제거 기록 — 걸린 패턴 이름과 지적 전체)
+    """
+    kept, dropped = [], []
+    for f in findings:
+        hit = self_negation(f.message) if f.issue_type in {"bug", "security"} else None
+        if hit is None:
+            kept.append(f)
+            continue
+        dropped.append(
+            {
+                "file": f.file,
+                "line": f.line,
+                "issue_type": f.issue_type,
+                "severity": f.severity,
+                "pattern": hit,
+                "reason": f"지적 본문이 스스로 문제없다고 결론 냄 ({hit})",
+                "finding": f.model_dump(),
+            }
+        )
+    return kept, dropped

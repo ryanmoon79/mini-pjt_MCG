@@ -1069,3 +1069,90 @@ def test_removed_api_claim_is_kept():
     )
     kept, dropped = verify_api_claims([finding], check_input(text).py_files)
     assert kept == [finding] and dropped == []
+
+
+# ── round4 준비: 판정 좁히기 · 자기부정 지적 필터 ─────────────────────────
+
+
+def _load_run_eval_module():
+    import importlib.util
+
+    path = config.ROOT_DIR / "evaluation" / "run_eval.py"
+    spec = importlib.util.spec_from_file_location("run_eval_for_judge_test", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_classified_as_counts_only_the_traits_issue():
+    """금지 항목 "bug로 분류": traits에 근거 ID가 있으면 위치 ±3 + 근거 ID 겹침만."""
+    run_eval = _load_run_eval_module()
+
+    def f(line, rule_ids, issue_type="bug"):
+        ev = [{"type": "tool", "rule_id": r} for r in rule_ids] or [{"type": "code"}]
+        return {
+            "issue_type": issue_type,
+            "file": "app/loader.py",
+            "line": line,
+            "evidence": ev,
+        }
+
+    traits6 = [
+        "app/loader.py 12행 부근 함수 이름 style 지적",
+        "근거로 PEP8-naming-conventions와 ruff:N802 제시",
+    ]
+    exception_bug = [f(15, [])]  # 6번 15행: 별개의 예외 처리 bug (근거 ID 없음)
+    assert run_eval.classified_as("bug", exception_bug, traits6, narrow=False)
+    assert not run_eval.classified_as("bug", exception_bug, traits6)  # 좁힌 기준
+    naming_as_bug = [f(12, ["ruff:N802"])]  # traits의 이슈를 bug로 → 여전히 걸림
+    assert run_eval.classified_as("bug", naming_as_bug, traits6)
+    # traits에 근거 ID가 없으면(1·7·8번) 지금처럼 위치만
+    traits1 = ["app/loader.py 15행 부근 bug 지적", "근거로 코드 위치 app/loader.py:15"]
+    assert run_eval.classified_as("style", [f(15, [], "style")], traits1)
+
+
+def _negated(message, issue_type="bug"):
+    from src.findings.schema import Finding
+
+    return Finding(
+        issue_type=issue_type,
+        file="app/x.py",
+        line=3,
+        severity="medium",
+        message=message,
+        evidence=[{"type": "code", "source": "app/x.py:3"}],
+        suggestion="s",
+    )
+
+
+def test_self_negated_findings_are_dropped():
+    """본문이 스스로 문제없다고 결론 낸 지적은 제거하고 패턴을 남긴다.
+
+    문장은 round3 Sonnet 재리뷰의 실제 지적(day07 113행, day05 567행)에서 줄였습니다.
+    """
+    from src.guardrails.output import drop_self_negated
+
+    day07 = _negated(
+        "재검토: 모든 경로에서 `status`와 `detail`이 할당되므로 실제 버그 없음. "
+        "다만 None id가 섞일 수 있습니다."
+    )
+    day05 = _negated(
+        "`raw` 조회가 None이면 `name` 조회로 넘어가므로 실제로는 동작합니다. "
+        "다만 차단 사유가 불친절합니다."
+    )
+    kept, dropped = drop_self_negated([day07, day05])
+    assert kept == []
+    assert [d["pattern"] for d in dropped] == ["실제 버그 없음", "실제로는 동작"]
+    assert dropped[0]["finding"]["message"].startswith("재검토")
+
+
+def test_concession_or_style_is_not_treated_as_self_negation():
+    """양보절("문제가 없지만 … 실패")과 style 지적은 그대로 둔다."""
+    from src.guardrails.output import drop_self_negated
+
+    concession = _negated(
+        "빈 문자열이면 문제가 없지만 None이면 .strip()에서 AttributeError가 납니다."
+    )
+    style = _negated("이름 규칙 외에는 문제가 없습니다.", issue_type="style")
+    kept, dropped = drop_self_negated([concession, style])
+    assert kept == [concession, style] and dropped == []

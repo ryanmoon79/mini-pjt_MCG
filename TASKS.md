@@ -118,7 +118,10 @@ GUI 규칙은 [CLAUDE.md](CLAUDE.md) 6번 "GUI"를 따릅니다. 에이전트·C
   - API 존재 주장 검증(출력 검증 ⑥, `guardrails.verify_api_claims`): "X가 1.x에 없다·제거됐다·import 안 된다·그런 인자는 없다" 지적은 설치된 LangChain·LangGraph에서 실제 import(호출이면 시그니처의 키워드 인자까지)로 확인해, 되면 제거하고 trace `api_claim_dropped`에 대상·패키지 버전·사유. 매핑표 "제거" API는 유지. 확인: `test_api_absence_claim_is_dropped_when_it_imports`, `test_removed_api_claim_is_kept`. round3 C 기록에 적용하면 3건 제거(9번 9·39행, day06 264행), "제거" API 지적은 모두 유지.
   - 리뷰어 프롬프트: 라이브러리 API 존재·변경은 매핑표·search_evidence로만 판단(기억 금지, 매핑표에 없으면 존재한다고 봄), ruff로 잡히는 비교·스타일(E711·E712·N8xx·I001)은 style로만.
   - `run_eval` summary `api_claim`(제거 수·케이스별 위치).
-  - 대기: 6번 판정 좁히기 제안·Sonnet 버그 후보 확인표(round3_report.md 부록)에 대한 사용자 판단 → 그 뒤 round4 실행(22건 + 커밋 재리뷰 4건, `evaluation/round4_report.md`).
+  - [x] 사용자 판단 반영 (2026-11-12): 6번 15행 예외 처리 지적은 타당 → 금지 항목 "X로 분류"를 traits 근거 ID 겹침 기준으로 좁힘(`run_eval.classified_as`, CSV 그대로; 기존→수정 점수 A 12→13/14, C 본 세트 17→18/20, 2차·B 변화 없음). 버그 후보 확인표는 모두 동의 → 정밀도 2/13 ≈ 0.15(판단 필요 포함 3/13). 확인: `test_classified_as_counts_only_the_traits_issue`.
+  - [x] 자기부정 지적 필터(출력 검증 ⑦, `guardrails/output.py`의 `drop_self_negated`): 저장된 기록에서 day07 113행·day05 567행 제거, day06 327행은 결론형이 아니라 남음, 평가 기록 전체에서 잘못 제거 0건. trace `self_negated_dropped`, `run_eval` summary `self_negated`. 확인: `test_self_negated_findings_are_dropped`, `test_concession_or_style_is_not_treated_as_self_negation`.
+  - [x] 버그 리뷰어 프롬프트: bug 지적에는 실패하는 입력·경로를 반드시 쓰고, 못 쓰면 지적하지 않음, 주석으로 밝힌 설계 선택은 bug 아님.
+  - [ ] round4 실행(사용자 확인 후): 최종 코드 + Sonnet으로 22건 + 커밋 재리뷰 4건, C와 비교 → `evaluation/round4_report.md`.
 - [x] **round3 이후 ② JSON 글 응답 파싱** — 리뷰어 답·보완 답이 JSON 글이면 파싱(`agent_text`·`finalize_text`), 모두 실패할 때만 none. 확인: `test_reviewer_json_text_is_parsed_without_extra_call`, `test_finalize_json_text_is_parsed_and_only_garbage_is_none`. 종합 노드 글 응답(10번)은 범위 밖, 결정 대기.
 - [x] **round3 이후 ③ 줄 길이 화면 간략화** — "## 참고" 두 줄, 상세는 --verbose, 건수·HITL 번호 제외, 추천 개선안 줄 길이 최대 1개, Review JSON은 그대로. 확인: `test_line_length_is_a_short_note_not_numbered_items` 외 3건, 4·14·15·17번 실제 실행(참고 줄로 판정 항목 통과, 17번은 2차 시도).
   - 기준 시점: 2차 제출은 태그 `submission-round2`(커밋 `7d2400c`), 다음 버전은 main (submission-round2 태그 이후).

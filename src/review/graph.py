@@ -42,6 +42,7 @@ from src.guardrails.output import (
     FALLBACK_SUGGESTION,
     check_output,
     cross_check_pep8,
+    drop_self_negated,
     forbidden_suggestion,
     mentions_classic,
     removed_import_patterns,
@@ -370,6 +371,9 @@ def build_graph(ctx: RunContext, checkpointer=None):
         # ⑥ API가 없다·제거됐다는 지적은 설치된 패키지에서 실제 import로 확인해,
         # import되면 제거 (매핑표의 "제거" API는 유지). C2처럼 따로 보고.
         kept, api_claim_dropped = verify_api_claims(kept, ctx.check.py_files)
+        # ⑦ 본문이 스스로 "실제 버그 없음"이라고 결론 낸 bug·security 지적은 제거
+        # (리뷰어 지적에만 적용, 입력 가드레일의 security 지적은 아래에서 따로 합침)
+        kept, self_negated_dropped = drop_self_negated(kept)
         # 입력 가드레일의 security 지적은 가드레일이 직접 만든 것이라 그대로 둠
         kept = [_fix_forbidden_suggestion(f) for f in kept]
         # ③ 줄 길이(E501)는 리뷰어 지적 대신 ruff 결과로 코드가 만듦 (숫자도 ruff 값)
@@ -416,6 +420,8 @@ def build_graph(ctx: RunContext, checkpointer=None):
             syntax_kept=syntax_kept,
             # ⑥ API 존재 주장 검증: import되는데 없다고 한 지적(대상·패키지 버전·전체)
             api_claim_dropped=api_claim_dropped,
+            # ⑦ 자기부정 지적: 걸린 패턴 이름·지적 전체
+            self_negated_dropped=self_negated_dropped,
             line_length_by_code=len(long_lines),  # ruff로 코드가 만든 줄 길이 지적
             reviewer_line_length_dropped=len(replaced),  # 리뷰어가 낸 줄 길이 지적
         )

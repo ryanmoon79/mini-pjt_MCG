@@ -176,7 +176,8 @@ mini-pjt_{본인이름}/
                    ④ 파싱 실패(SyntaxError 등)를 주장하는 지적은 변경 후 파일을 ast.parse로 검증해
                    파싱되면 제거(파일 일부만 보이면 유지·기록), ⑤ 줄 길이 지적은 ruff 결과로 코드가 만듦,
                    ⑥ API가 없다·제거됐다는 지적은 설치된 패키지에서 실제 import(호출이면 시그니처)로
-                   확인해 되면 제거(매핑표 "제거" API는 유지), 입력 가드레일의 security 지적 병합
+                   확인해 되면 제거(매핑표 "제거" API는 유지), ⑦ 본문이 스스로 "실제 버그 없음"이라고
+                   결론 낸 bug·security 지적 제거, 입력 가드레일의 security 지적 병합
                    (LLM은 ③의 재생성에만)
 → [종합]           요약 5줄 중 2·3·4줄(보안·버그, 스타일, 범위·기준)은 코드가 만들고,
                    LCEL은 1줄(변경 내용)·5줄(할 일)·추천 개선안만 씀 (SummaryDraft 스키마 검증,
@@ -268,6 +269,8 @@ CiteReview 자신이 deprecated API를 쓰면 안 됩니다. 아래는 **사용 
 ### 근거와 가드레일
 - 근거는 세 종류만 인정합니다: **문서 청크(doc) / 도구 출력(tool) / diff 코드 위치(code)**.
 - **API 존재 주장 검증 (`src/guardrails/output.py`의 `verify_api_claims`):** bug·security 지적의 설명이 "X가 1.x에 없다·존재하지 않는다·제거됐다·import 안 된다"를 주장하면, 지적 문장과 그 줄의 코드에서 LangChain·LangGraph import 대상(호출이면 그 파일이 import한 함수와 문장에 적힌 키워드 인자)을 뽑아 **설치된 패키지에서 실제로 import·시그니처 확인**합니다. 모두 확인되면 제거하고 `trace`의 `api_claim_dropped`에 대상·패키지 버전·사유를 남깁니다. deprecated_map.md에서 "제거"인 API는 import 결과와 관계없이 유지합니다. 다른 패키지 이름은 import하지 않습니다.
+- **자기부정 지적 필터 (`src/guardrails/output.py`의 `drop_self_negated`):** 리뷰어가 낸 bug·security 지적의 본문이 결론으로 "실제 버그 없음", "실제로는 동작", 문장 끝의 "문제없습니다", "버그가 아닙니다" 등을 말하면 제거하고 `trace`의 `self_negated_dropped`에 걸린 패턴과 지적 전체를 남깁니다. 양보절("문제가 없지만 None이면 실패")과 입력 가드레일의 security 지적은 대상이 아닙니다.
+- **버그 지적의 실패 경로 (프롬프트):** bug 지적의 message에는 "어떤 입력·호출 경로에서 어떻게 실패하는지"를 반드시 쓰고, 이 diff의 코드로 구체적으로 쓸 수 없으면 지적하지 않습니다. 주석으로 의도를 밝힌 설계 선택은 bug가 아닙니다.
 - **리뷰어의 라이브러리 판단 규칙 (프롬프트):** API 존재·제거·변경은 매핑표와 `search_evidence` 결과로만 판단하고(기억 금지, 매핑표에 없으면 존재한다고 봄), ruff로 잡히는 비교·스타일(E711·E712·N8xx·I001)은 style로만 분류합니다.
 - **파싱 실패 주장 검증:** 지적 설명이 SyntaxError·IndentationError·TabError·문법·구문 오류를 주장하면 변경 후 파일을 `ast.parse`로 검증합니다(`src/guardrails/output.py`의 `verify_syntax_claims`). 파싱되면 제거하고 `trace`의 `syntax_dropped`에 지적 전체와 사유를, 파일 일부만 보이거나 실제로 파싱이 안 되면 유지하고 `syntax_kept`에 사유를 남깁니다. 논리 버그 설명("들여쓰기 때문에 return이 루프 안에 있음")은 대상이 아닙니다.
 - 출력 검증은 근거가 **실제로 존재하는지 기계적으로 확인**합니다. 예: `code` 근거의 라인이 diff에 있는지, `doc` 근거가 이번 검색 결과에 있었는지, `tool` 근거가 이번 도구 출력에 있었는지. 제거 전후 지적 수를 `trace`에 남깁니다.

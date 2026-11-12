@@ -225,14 +225,38 @@ def judge_forbidden_by_code(
         return "거절했습니다" in out["answer"]
     m = re.fullmatch(r"(bug|style|security)로 분류", text)
     if m:
-        locs = [(f, int(n)) for t in traits for f, n in LOC_RE.findall(t)]
-        targets = (
-            [f for file, n in locs for f in _near(findings, file, n)]
-            if locs
-            else findings
-        )
-        return any(f["issue_type"] == m.group(1) for f in targets)
+        return classified_as(m.group(1), findings, traits)
     return None
+
+
+# traits에 적힌 근거 ID (도구 ruff:·문서 PEP8-·DEP-) — "X로 분류" 판정을 좁히는 데 씀
+TRAIT_ID_RE = re.compile(r"(ruff:[A-Z]+\d+|PEP8-[a-z]+(?:-[a-z]+)*|DEP-[A-Za-z_]+)")
+
+
+def classified_as(
+    issue_type: str, findings: list[dict], traits: list[str], narrow: bool = True
+) -> bool:
+    """금지 항목 "X로 분류": traits에 적힌 이슈를 X 유형으로 지적했는지.
+
+    - 위치: traits의 "파일 N행 부근"의 ±3줄 안 지적만 봅니다(위치가 없으면 전체).
+    - **좁힌 기준(round3 이후, 기본):** traits에 근거 ID(ruff:·PEP8-·DEP-)가 있으면
+      그 지적의 근거 ID가 traits의 근거 ID와 겹칠 때만 "traits의 이슈"로 봅니다.
+      같은 위치 근처의 별개 지적(예: 6번 15행 예외 처리 bug)은 걸리지 않습니다.
+      traits에 근거 ID가 없으면(1·7·8번처럼 코드 위치 근거만) 위치만 봅니다.
+    - `narrow=False`는 2차 이전의 기존 기준(위치만) — 리포트의 기존·수정 점수 비교용.
+    """
+    locs = [(f, int(n)) for t in traits for f, n in LOC_RE.findall(t)]
+    targets = (
+        [f for file, n in locs for f in _near(findings, file, n)] if locs else findings
+    )
+    ids = {i for t in traits for i in TRAIT_ID_RE.findall(t)} if narrow else set()
+    if ids:
+        targets = [
+            f
+            for f in targets
+            if ids & {e.get("rule_id") for e in f.get("evidence", [])}
+        ]
+    return any(f["issue_type"] == issue_type for f in targets)
 
 
 # ── LLM 판정 (Nova Pro) ─────────────────────────────────────────────
@@ -654,6 +678,18 @@ def syntax_summary(results: list[tuple[dict, dict, dict]]) -> dict:
     }
 
 
+def self_negated_summary(results: list[tuple[dict, dict, dict]]) -> dict:
+    """출력 검증 ⑦(자기부정 지적)이 제거한 지적 수와 케이스별 줄·패턴."""
+    by_case = {}
+    for c, o, _ in results:
+        rows = (_output_event(o["trace"]) or {}).get("self_negated_dropped") or []
+        if rows:
+            by_case[c["id"]] = [
+                {"line": r["line"], "pattern": r["pattern"]} for r in rows
+            ]
+    return {"dropped": sum(len(v) for v in by_case.values()), "by_case": by_case}
+
+
 def api_claim_summary(results: list[tuple[dict, dict, dict]]) -> dict:
     """출력 검증 ⑥(API 존재 주장 검증)이 제거한 지적 수와 케이스별 위치·대상."""
     by_case = {}
@@ -799,6 +835,8 @@ def set_summary(results: list[tuple[dict, dict, dict]]) -> dict:
         "syntax": syntax_summary(results),
         # 출력 검증 ⑥: import되는데 없다고 한 API 지적 제거 수 (round4부터)
         "api_claim": api_claim_summary(results),
+        # 출력 검증 ⑦: 본문이 스스로 문제없다고 결론 낸 지적 제거 수
+        "self_negated": self_negated_summary(results),
     }
 
 
