@@ -1,4 +1,4 @@
-"""src/retriever.py·src/tools.py 테스트 (TASKS A3).
+"""src/evidence/·src/tools/ 테스트 (TASKS A3).
 
 가짜 임베딩(DeterministicFakeEmbedding)과 임시 Chroma 폴더를 써서
 실제 API를 호출하지 않습니다.
@@ -10,10 +10,11 @@ import json
 import pytest
 from langchain_core.embeddings import DeterministicFakeEmbedding
 
-from src import config
-from src import diff_parser as dp
-from src.retriever import build_retriever, load_corpus
-from src.tools import ToolLog, build_tools
+from src.diff import parser as dp
+from src.evidence.corpus import load_corpus
+from src.evidence.search import build_retriever
+from src.shared import config
+from src.tools.agent_tools import ToolLog, build_tools
 
 PEP8_IDS = {
     "PEP8-maximum-line-length",
@@ -74,7 +75,7 @@ def test_rrf_merge_combines_rankings():
     """RRF: 두 목록에 모두 나온 청크가 한쪽 1위보다 앞설 수 있다."""
     from langchain_core.documents import Document
 
-    from src.retriever import rrf_merge
+    from src.evidence.search import rrf_merge
 
     def doc(rid):
         return Document(page_content=rid, metadata={"rule_id": rid})

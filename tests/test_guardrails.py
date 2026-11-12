@@ -12,9 +12,9 @@ import json
 import pytest
 from langchain_core.embeddings import DeterministicFakeEmbedding
 
-from src import config
-from src.agent import resume_review, run_query
-from src.retriever import build_retriever
+from src.evidence.search import build_retriever
+from src.review.graph import resume_review, run_query
+from src.shared import config
 from tests.fakes import call, fake, handoff
 
 ALLOWED = "me/practice-repo"

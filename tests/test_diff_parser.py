@@ -1,10 +1,10 @@
-"""src/diff_parser.py 단위 테스트 (TASKS A2).
+"""src/diff/parser.py 단위 테스트 (TASKS A2).
 
 테스트용 diff는 이 파일 안에서 만듭니다 (교육용 더미 데이터입니다).
 """
 
-from src import diff_parser as dp
-from src.config import MAX_PY_CHANGED_LINES
+from src.diff import parser as dp
+from src.shared.review_settings import MAX_PY_CHANGED_LINES
 
 
 def _added_file(path: str, n: int) -> str:

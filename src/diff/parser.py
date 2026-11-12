@@ -21,6 +21,8 @@ import re
 from dataclasses import dataclass, field
 
 _HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$")
+
+
 _DEV_NULL = "/dev/null"
 
 

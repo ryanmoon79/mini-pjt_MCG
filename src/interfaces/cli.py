@@ -1,7 +1,7 @@
 """CLI 진입점.
 
-    python -m src.cli review <diff 파일> [--verbose] [--batch] [--repo owner/repo]
-                             [--repo-dir 저장소 폴더] [--max-lines N]
+    python -m src.interfaces.cli review <diff 파일> [--verbose] [--batch]
+        [--repo owner/repo] [--repo-dir 저장소 폴더] [--max-lines N]
 
 - 기본(대화형): 리뷰를 출력한 뒤 "PR에 코멘트로 게시할까요?"를 묻고(HITL),
   답에 따라 같은 thread_id로 재개합니다.
@@ -25,16 +25,15 @@ import argparse
 import json
 import sys
 
-from src.agent import resume_review, run_query
-from src.config import (
-    MAX_LINES_CAP,
-    MAX_PY_CHANGED_LINES,
+from src.report.render import render_verbose
+from src.review.graph import resume_review, run_query
+from src.shared.config import (
     REVIEW_MODEL_KEY,
     REVIEW_MODELS,
     get_llm,
     review_model_region,
 )
-from src.render import render_verbose
+from src.shared.review_settings import MAX_LINES_CAP, MAX_PY_CHANGED_LINES
 
 APPROVAL_HELP = "[y] 승인  [n] 거절  [i 번호...] 그 항목을 빼고 승인 (예: i 2 3)"
 

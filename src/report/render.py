@@ -1,8 +1,9 @@
 """렌더러: `Review` → 터미널 Markdown (형식 기준 docs/output_example.md).
 
-- **LLM을 호출하지 않습니다.** `Review`와 `diff_parser` 결과만으로 문자열을 만듭니다.
-- 문제 코드 발췌는 `diff_parser.excerpt()`를 쓰고, 여기서 diff를 다시 파싱하지 않습니다
-  (호출하는 쪽이 이미 파싱·마스킹한 `FileDiff` 목록을 넘김).
+- **LLM을 호출하지 않습니다.** `Review`와 diff 파서(src/diff/parser.py) 결과만으로
+  문자열을 만듭니다.
+- 문제 코드 발췌는 `src/diff/parser.py`의 `excerpt()`를 쓰고, 여기서 diff를 다시
+  파싱하지 않습니다 (호출하는 쪽이 이미 파싱·마스킹한 `FileDiff` 목록을 넘김).
 - 섹션: 요약 / 잠재 버그(보안·버그 소제목) / 스타일 이슈 / 추천 개선안.
   섹션 안은 심각도 high > medium > low 순, 지적 번호는 문서 전체에서 이어 붙입니다.
 - 내부 로그는 `render_verbose()`로 따로 만들며 `--verbose`에서만 붙입니다.
@@ -22,24 +23,44 @@ import re
 import textwrap
 import tokenize
 
-from src import diff_parser as dp
-from src.schema import Evidence, Finding, Review
+from src.diff import parser as dp
+from src.findings.schema import Evidence, Finding, Review
 
 SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
+
+
 MUST_FIX = {"high", "medium"}
+
+
 TYPE_LABEL = {"security": "보안", "bug": "버그", "style": "스타일"}
+
+
 TOOL_TITLES = {
     "secret-scanner": "비밀값 탐지",
     "pii-scanner": "개인정보 탐지",
     "injection-scanner": "프롬프트 인젝션 탐지",
 }
+
+
 SECRET_PATTERN_NAMES = {"aws-access-key", "aws-secret-key", "api-key", "password"}
+
+
 MAX_FIX_LINES = 5  # 고치는 방법의 + 줄 최대 표시 수 (넘으면 --verbose에서 전체)
+
+
 NO_ISSUES = "문제를 찾지 못했습니다."
-# 결과를 받지 못한 리뷰어 표시용 (src/reviewers.py의 BUG·STYLE 이름)
+
+
+# 결과를 받지 못한 리뷰어 표시용 (src/review/team.py의 BUG·STYLE 이름)
 REVIEWER_LABELS = {"bug_reviewer": "버그 리뷰어", "style_reviewer": "스타일 리뷰어"}
+
+
 _CODE_BLOCK_RE = re.compile(r"```(?:python)?\n(.*?)```", re.DOTALL)
+
+
 E501_IDS = {"ruff:E501", "PEP8-maximum-line-length"}
+
+
 LINE_LENGTH_HINT = (
     "나누는 방법: 괄호 안에서 줄을 바꾸거나, 긴 문자열·주석·docstring을 여러 줄로 "
     "나눕니다(줄마다 수정안은 붙이지 않음). 기준이 팀과 다르면 저장소 자체 ruff 설정"
@@ -126,6 +147,8 @@ def line_length_of(review: Review) -> list[Finding]:
 
 
 _LIMIT_IN_MESSAGE_RE = re.compile(r"기준 (\d+)칸")
+
+
 MAX_NOTE_LINES = 15  # "## 참고"에 보여 줄 줄 번호 최대 수 (나머지는 "외 N줄")
 
 

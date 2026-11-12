@@ -1,4 +1,6 @@
-"""src/agent.py 배선 테스트 (TASKS A4). 가짜 모델만 씁니다 (실제 LLM 호출 없음).
+"""리뷰 그래프(src/review/graph.py) 배선 테스트 (TASKS A4).
+
+가짜 모델만 씁니다 (실제 LLM 호출 없음).
 
 테스트 diff는 교육용 더미 데이터이며, AWS 키는 AWS 문서의 예시 형식 가짜 값입니다.
 """
@@ -8,9 +10,9 @@ import json
 import pytest
 from langchain_core.embeddings import DeterministicFakeEmbedding
 
-from src import config
-from src.agent import run_query
-from src.retriever import build_retriever
+from src.evidence.search import build_retriever
+from src.review.graph import run_query
+from src.shared import config, review_settings
 from tests.fakes import call, fake, handoff
 
 # 종합 노드(LLM)는 요약 1줄(change)·5줄(action)·추천 개선안만 씀 (2·3·4줄은 코드)
@@ -97,7 +99,7 @@ def test_run_query_returns_three_keys_and_trace(retriever):
     assert review["summary"][1].startswith("보안 지적 0건, 버그 지적 1건")
     assert "app/chain.py 12행" in review["summary"][1]
     assert review["summary"][3].startswith("리뷰 범위: app/chain.py")
-    assert config.DEFAULT_SETTINGS.label() in review["summary"][3]
+    assert review_settings.DEFAULT_SETTINGS.label() in review["summary"][3]
     summary_ev = next(e for e in out["trace"] if e.get("stage") == "summary")
     assert summary_ev["replaced"] == []
     assert [f["line"] for f in review["findings"]] == [12]
@@ -147,8 +149,9 @@ def test_java_only_diff_is_rejected_without_llm(tmp_path):
 
 def test_output_check_drops_unverified_evidence():
     """출력 검증: 검색하지 않은 문서·없는 줄·없는 ruff 코드를 인용한 근거는 지운다."""
-    from src.guardrails import check_input, check_output
-    from src.schema import Finding
+    from src.findings.schema import Finding
+    from src.guardrails.input import check_input
+    from src.guardrails.output import check_output
 
     text = (config.EVAL_DIFFS_DIR / "03_llmchain.diff").read_text(encoding="utf-8")
     check = check_input(text)
@@ -188,7 +191,7 @@ def test_output_check_drops_unverified_evidence():
 
 def test_forbidden_suggestion_is_regenerated_then_falls_back(retriever):
     """고치는 방법에 langchain_classic이 있으면 1회 재생성, 그래도 남으면 대체 문구."""
-    from src.guardrails import FALLBACK_SUGGESTION
+    from src.guardrails.output import FALLBACK_SUGGESTION
 
     BAD_FIX = "```python\nfrom langchain_classic.chains import LLMChain\n```"  # noqa: N806
 
@@ -289,8 +292,8 @@ def test_llm_summary_lines_are_replaced_after_one_retry(retriever):
     change: 추측·평가 표현 → 파일별 추가/삭제 줄 수 문장.
     action: 지적 목록에 없는 줄 번호 → 가장 심각한 꼭 고칠 것 문장 (지적 없으면 "없음").
     """
-    from src.agent import action_fallback, change_fallback
-    from src.guardrails import check_input
+    from src.guardrails.input import check_input
+    from src.review.summary import action_fallback, change_fallback
 
     bad = draft(
         change="전반적으로 양호한 변경으로 보입니다.",
@@ -369,8 +372,8 @@ def test_c2_removes_pep8_finding_on_normal_line(retriever):
 
 def test_synth_payload_orders_groups_and_drops_notes():
     """요약 입력: security·bug 먼저, 인젝션 참고 제외, 파일별 E501은 한 건으로 묶음."""
-    from src.agent import synth_payload
-    from src.schema import Finding
+    from src.findings.schema import Finding
+    from src.review.summary import synth_payload
 
     def f(issue_type, line, rule_id, severity="low"):
         return Finding(
@@ -396,7 +399,7 @@ def test_synth_payload_orders_groups_and_drops_notes():
 
 
 def _finding(issue_type, line, rule_id, severity="low", file="a.py"):
-    from src.schema import Finding
+    from src.findings.schema import Finding
 
     return Finding(
         issue_type=issue_type,
@@ -411,7 +414,7 @@ def _finding(issue_type, line, rule_id, severity="low", file="a.py"):
 
 def test_code_summary_lines_and_llm_line_rules():
     """요약 2·3·4줄은 코드가 만들고, LLM 줄(1·5)은 코드 규칙으로 검사한다."""
-    from src.agent import (
+    from src.review.summary import (
         action_violation,
         change_violation,
         scope_line,
@@ -437,7 +440,7 @@ def test_code_summary_lines_and_llm_line_rules():
         "스타일: 줄 길이 초과 2줄, 그 밖의 스타일 1건 (N802)."
     )
     assert style_line([]) == "스타일 지적은 없습니다."
-    scope = scope_line(["a.py"], ["README.md"], config.DEFAULT_SETTINGS)
+    scope = scope_line(["a.py"], ["README.md"], review_settings.DEFAULT_SETTINGS)
     assert scope.startswith("리뷰 범위: a.py; 건너뜀: README.md; 기준: 줄 길이 88칸")
     # LLM 줄 규칙
     assert change_violation("a.py에 함수 f를 추가합니다.") is None
@@ -452,7 +455,7 @@ def test_code_summary_lines_and_llm_line_rules():
 
 def test_review_settings_priority_and_cap(tmp_path):
     """변경 한도: 사용자 지정 > 저장소 [tool.citereview] > 기본 300, 최대 500."""
-    from src.config import MAX_LINES_CAP, load_review_settings
+    from src.shared.review_settings import MAX_LINES_CAP, load_review_settings
 
     assert load_review_settings().max_lines == 300  # 아무것도 없으면 기본값
     assert load_review_settings(None, 450).max_lines_source == "사용자 지정"
@@ -481,7 +484,7 @@ def test_review_settings_priority_and_cap(tmp_path):
 
 def test_check_input_uses_max_lines():
     """300줄 초과 diff는 기본값에서 거절, 한도 500이면 통과 (같은 diff)."""
-    from src.guardrails import check_input
+    from src.guardrails.input import check_input
 
     body = "".join(f"+X_{i} = {i}\n" for i in range(350))
     diff = (
@@ -494,9 +497,9 @@ def test_check_input_uses_max_lines():
 
 def test_run_ruff_follows_repo_ruff_setting(tmp_path):
     """저장소 ruff 설정이 있으면 그 줄 길이 기준으로 검사한다 (04번 diff 9행 = 95칸)."""
-    from src import diff_parser as dp
-    from src.config import load_review_settings
-    from src.tools import run_ruff
+    from src.diff import parser as dp
+    from src.shared.review_settings import load_review_settings
+    from src.tools.ruff import run_ruff
 
     text = (config.EVAL_DIFFS_DIR / "04_long_line.diff").read_text(encoding="utf-8")
     (file,) = dp.split_python(dp.parse_diff(text))[0]
@@ -661,8 +664,9 @@ def test_parse_failure_claim_dropped_but_logic_bug_kept(retriever):
 
 def test_parse_failure_claim_kept_when_broken_or_partial():
     """실제로 파싱이 안 되거나 파일 일부만 보이면 지적을 유지하고 사유를 남긴다."""
-    from src.guardrails import check_input, verify_syntax_claims
-    from src.schema import Finding
+    from src.findings.schema import Finding
+    from src.guardrails.input import check_input
+    from src.guardrails.output import verify_syntax_claims
 
     broken = check_input(
         "diff --git a/app/b.py b/app/b.py\n--- /dev/null\n+++ b/app/b.py\n"
@@ -699,7 +703,7 @@ def test_parse_failure_claim_kept_when_broken_or_partial():
 
 def test_length_numbers_checked_only_in_line_length_sentences():
     """줄 길이를 언급한 문장의 숫자만 적용 기준·ruff 값과 비교한다."""
-    from src.agent import action_violation, length_number_violation
+    from src.review.summary import action_violation, length_number_violation
 
     lengths = {88, 95}  # 기준 88칸, ruff가 잰 길이 95칸
     wrong = length_number_violation("9행 줄 길이를 79자 이하로 줄이세요.", lengths)
@@ -852,7 +856,7 @@ def test_run_eval_requires_review_model(monkeypatch):
 
 def test_verbose_shows_usage_totals():
     """--verbose에 역할별 토큰과 합계가 보인다."""
-    from src.render import render_verbose
+    from src.report.render import render_verbose
 
     usage = {
         "type": "usage",
@@ -903,7 +907,7 @@ def test_reviewer_json_text_is_parsed_without_extra_call(retriever):
 
 def test_finalize_json_text_is_parsed_and_only_garbage_is_none(retriever):
     """보완 단계도 도구 없이 JSON 글(```json 울타리)로 답하면 파싱, 파싱 실패만 none."""
-    from src.reviewers import parse_findings_text
+    from src.review.team import parse_findings_text
 
     models = _models([])
     models["bug_reviewer"] = fake(
@@ -929,7 +933,7 @@ def test_finalize_json_text_is_parsed_and_only_garbage_is_none(retriever):
 
 def test_line_length_recommendations_are_limited():
     """추천 개선안의 줄 길이 항목: 다른 지적이 있으면 빼고, 줄 길이만 있으면 1개만."""
-    from src.agent import limit_line_length_recs
+    from src.review.summary import limit_line_length_recs
 
     e501 = [_finding("style", 9, "ruff:E501"), _finding("style", 12, "ruff:E501")]
     recs = [
@@ -952,8 +956,8 @@ def test_post_body_keeps_line_length_note_and_verbose_has_detail(
 
     줄별 길이·코드/주석 구분은 --verbose(trace stage="line_length")에서만 보인다.
     """
-    from src.agent import resume_review
-    from src.render import render_verbose
+    from src.report.render import render_verbose
+    from src.review.graph import resume_review
 
     monkeypatch.setenv("CITEREVIEW_ALLOWED_POST_REPOS", "me/practice-repo")
     models = _models([])
@@ -1050,8 +1054,9 @@ def test_api_absence_claim_is_dropped_when_it_imports(retriever):
 
 def test_removed_api_claim_is_kept():
     """매핑표에서 "제거"인 LLMChain 지적은 유지 (import도 실제로 실패)."""
-    from src.guardrails import check_input, verify_api_claims
-    from src.schema import Finding
+    from src.findings.schema import Finding
+    from src.guardrails.input import check_input
+    from src.guardrails.output import verify_api_claims
 
     text = (config.EVAL_DIFFS_DIR / "03_llmchain.diff").read_text(encoding="utf-8")
     finding = Finding.model_validate(

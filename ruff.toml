@@ -13,4 +13,4 @@ select = ["E", "W", "F", "I", "N"]
 [lint.per-file-ignores]
 # GUI 화면(HTML/CSS 문자열)의 긴 줄만 예외 — 파이썬 코드 줄은 ruff format이 88자로 맞춤.
 # ruff_check 도구는 리뷰 대상 diff의 경로(app/... 등)로 검사하므로 영향 없음.
-"src/gui_server.py" = ["E501"]
+"src/interfaces/gui_server.py" = ["E501"]

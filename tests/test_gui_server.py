@@ -1,4 +1,4 @@
-"""src/gui_server.py 요청 검사 테스트 (CLAUDE.md 6번 "GUI").
+"""src/interfaces/gui_server.py 요청 검사 테스트 (CLAUDE.md 6번 "GUI").
 
 서버를 이 프로세스 안에서 임의 포트로 띄우고 `http.client`로 요청합니다.
 실제 LLM이나 리뷰는 실행하지 않습니다 (거절되어야 하는 요청만 보내고,
@@ -12,7 +12,7 @@ from http.server import ThreadingHTTPServer
 
 import pytest
 
-from src import gui_server
+from src.interfaces import gui_server
 
 
 @pytest.fixture

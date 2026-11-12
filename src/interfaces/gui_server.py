@@ -1,8 +1,8 @@
 """시연용 로컬 웹 GUI (TASKS G1, CLAUDE.md 6번 "GUI").
 
 사용법:
-    python -m src.gui_server            # http://127.0.0.1:8765 에서 열림
-    python -m src.gui_server --port 9000 --no-browser
+    python -m src.interfaces.gui_server  # http://127.0.0.1:8765 에서 열림
+    python -m src.interfaces.gui_server --port 9000 --no-browser
 
 - 표준 라이브러리(`http.server`, `threading`, `json`, `subprocess`)만 씁니다.
 - 에이전트 경로는 CLI와 같습니다: `run_query`로 리뷰하고, 승인 대기에서 멈춘 리뷰는
@@ -35,16 +35,25 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from src import config
-from src.agent import resume_review, run_query
-from src.observability import TraceRecorder
-from src.render import render_verbose
+from src.observability.trace import TraceRecorder
+from src.report.render import render_verbose
+from src.review.graph import resume_review, run_query
+from src.shared import config, review_settings
 
 HOST = "127.0.0.1"  # 로컬에서만 엶 (외부 주소로 바인딩하지 않음)
+
+
 DEFAULT_PORT = 8765
-MAX_PY_LINES = config.MAX_PY_CHANGED_LINES
+
+
+MAX_PY_LINES = review_settings.MAX_PY_CHANGED_LINES
+
+
 COMMIT_RE = re.compile(r"^[0-9a-fA-F]{4,40}$")
+
+
 WORK_DIR = Path(tempfile.mkdtemp(prefix="citereview_gui_"))  # 커밋에서 만든 diff
+
 
 # 진행 표시에 쓰는 노드 순서와 화면 이름 (render 다음이 승인 대기)
 STEPS = [
@@ -57,8 +66,13 @@ STEPS = [
     ("hitl", "승인 대기"),
 ]
 
+
 JOBS: dict[str, dict] = {}
+
+
 JOBS_LOCK = threading.Lock()
+
+
 _CURRENT_JOB: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "citereview_gui_job", default=None
 )
@@ -136,6 +150,8 @@ path = filedialog.askdirectory(
 root.destroy()
 sys.stdout.write(path or "")
 """
+
+
 _PICKER_LOCK = threading.Lock()
 
 
@@ -171,14 +187,14 @@ def pick_folder(initial: str = "") -> dict:
     return {"path": path, "git": is_git_repo(path)}
 
 
-def review_limit(repo: str, max_lines) -> config.ReviewSettings:
+def review_limit(repo: str, max_lines) -> review_settings.ReviewSettings:
     """화면의 변경 한도 입력과 저장소 설정으로 실제 적용될 기준을 정합니다.
 
     빈 입력이면 저장소 `[tool.citereview] max-lines` > 기본 300, 최대 500
     (범위를 벗어나면 ValueError → 400 응답). 리뷰 실행과 같은 함수로 계산합니다.
     """
     value = None if max_lines in (None, "") else int(max_lines)
-    return config.load_review_settings(repo or None, value)
+    return review_settings.load_review_settings(repo or None, value)
 
 
 def list_commits(

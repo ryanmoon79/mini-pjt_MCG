@@ -33,7 +33,7 @@ LLM 코드 리뷰는 근거가 없어 믿고 고칠지 판단하기 어렵고, L
 |---|---|---|---|
 | 1 | LCEL chain (Pydantic 구조화 출력) | Day 1 | 종합 노드: `SYNTH_PROMPT \| llm.with_structured_output(ReviewSummary)`로 요약 5줄·추천 개선안 생성 (형식 오류 시 1회 재생성) |
 | 2 | ReAct (도구 자율 선택) | Day 3 | 리뷰어 2종이 `create_agent`로 `ruff_check`·`search_evidence` 중 필요한 도구를 스스로 고름 |
-| 3 | RAG (하이브리드 검색) | Day 2 | `retriever.py`: PEP 8·deprecated 매핑표 12청크(`rule_id` 메타데이터), **BM25 + Chroma 벡터를 RRF로 직접 합침** (`EnsembleRetriever`는 1.x에서 `langchain_classic`으로 옮겨져 쓰지 않음) |
+| 3 | RAG (하이브리드 검색) | Day 2 | `src/evidence/` (재노출 `src/retriever.py`): PEP 8·deprecated 매핑표 12청크(`rule_id` 메타데이터), **BM25 + Chroma 벡터를 RRF로 직접 합침** (`EnsembleRetriever`는 1.x에서 `langchain_classic`으로 옮겨져 쓰지 않음) |
 | 4 | 도구 다중 | Day 4 | 한 리뷰에서 `ruff_check` → `search_evidence`(ruff 결과의 `pep8_rule_id`로 PEP 8 섹션 검색)를 이어서 사용 |
 | 5 | MCP 서버 연동 | Day 4 | **미구현** — GitHub MCP PR 조회(`github_get_pr`)는 선택 작업 C1 |
 | 6 | 가드레일 | Day 5 | 입력: 비밀값·PII 마스킹, 인젝션 탐지, 범위(`.py`만, 300줄) / 출력: 스키마, 근거 실재 확인, `langchain_classic` 권장 제거, PEP 8 근거 ruff 교차 확인(C2) |
@@ -83,10 +83,10 @@ CITEREVIEW_ALLOWED_POST_REPOS=owner/repo   # (선택) 게시 허용 저장소, �
 
 ```bash
 git diff -U9999 > my.diff                                            # 리뷰할 변경을 diff로 저장
-python -m src.cli review my.diff                                     # 리뷰 출력 → 게시 승인 여부 질문
-python -m src.cli review data/eval_diffs/03_llmchain.diff --verbose  # 내부 로그 포함
-python -m src.cli review my.diff --batch                             # 승인 대기에서 멈추고 결과 JSON 출력
-python -m src.cli review my.diff --repo-dir ../my-repo --max-lines 500  # 저장소 ruff 설정 + 변경 한도 500
+python -m src.interfaces.cli review my.diff                                     # 리뷰 출력 → 게시 승인 여부 질문
+python -m src.interfaces.cli review data/eval_diffs/03_llmchain.diff --verbose  # 내부 로그 포함
+python -m src.interfaces.cli review my.diff --batch                             # 승인 대기에서 멈추고 결과 JSON 출력
+python -m src.interfaces.cli review my.diff --repo-dir ../my-repo --max-lines 500  # 저장소 ruff 설정 + 변경 한도 500
 ```
 
 변경 한도는 기본 300줄이고 `--max-lines`(최대 500) > 저장소 `pyproject.toml [tool.citereview] max-lines` > 300 순서로 정합니다. `--repo-dir`를 주면 그 저장소의 ruff 설정(`ruff.toml`·`.ruff.toml`·`pyproject.toml [tool.ruff]`)으로 검사합니다. 적용된 기준은 결과 맨 위 줄과 요약 4줄에 보입니다.
@@ -119,7 +119,7 @@ uv pip install --python .venv-eval/Scripts/python.exe -r requirements-eval.txt
 **6. 시연용 로컬 GUI** — 표준 라이브러리 `http.server`로 `127.0.0.1:8765`에서만 열립니다. CLI와 같은 `run_query`·`resume_review`를 씁니다.
 
 ```bash
-python -m src.gui_server      # 브라우저가 열림 (Windows는 run.bat 더블클릭)
+python -m src.interfaces.gui_server  # 브라우저가 열림 (Windows는 run.bat 더블클릭)
 ```
 
 **폴더 선택** 버튼(맨 앞에 뜨는 Windows 폴더 창)이나 경로 입력으로 저장소를 고르면 커밋 카드 목록(메시지, 해시, 날짜, `.py` 변경 줄 수, 적용 한도 초과 표시)이 나오고 카드를 눌러 리뷰합니다. 변경 한도 입력칸(비우면 저장소 설정 또는 300, 최대 500)을 바꾸면 초과 표시가 새 한도로 다시 계산되고, 커밋 리뷰는 그 저장소의 ruff 설정을 따릅니다. 또는 diff 파일을 고르면, 진행 단계(입력 가드레일 → planner → 리뷰어 → 출력 검증 → 종합 → 렌더링 → 승인 대기)와 CLI와 같은 고정폭 결과가 나오고, 승인/거절 버튼으로 dry-run 게시를 결정합니다.
@@ -195,14 +195,17 @@ python -m src.gui_server      # 브라우저가 열림 (Windows는 run.bat 더�
 
 | 파일 | 함수 | 역할 |
 |---|---|---|
-| [src/agent.py](src/agent.py) | `build_graph` | 메인 에이전트 그래프 (노드 함수 `input_guardrail` → `planner` → `review_team` → `output_validate` → `synthesize` → `render` → `hitl` → `post`) |
-| [src/agent.py](src/agent.py) | `run_query`, `resume_review` | 핵심 함수 (`answer`·`contexts`·`trace` 반환), HITL 재개 |
-| [src/tools.py](src/tools.py) | `build_tools` (`ruff_check`, `search_evidence`), `run_ruff`, `github_post_comment` | 도메인 도구 (게시는 dry-run) |
-| [src/retriever.py](src/retriever.py) | `build_retriever`, `HybridRetriever.search`, `rrf_merge` | RAG 파이프라인 (BM25 + 벡터, RRF) |
-| [src/reviewers.py](src/reviewers.py) | `plan_reviews`, `build_reviewer`, `run_review_team` | 규칙 기반 planner, `create_agent` 리뷰어, supervisor |
-| [src/guardrails.py](src/guardrails.py) | `check_input`, `check_output`, `cross_check_pep8`, `masking_middleware` | 입력 가드레일, 근거 존재 검사, C2, 마스킹 미들웨어 |
-| [src/schema.py](src/schema.py) | `Evidence` → `Finding` → `Review` | 출력 스키마 |
-| [src/render.py](src/render.py) | `render_review` | 터미널 Markdown 렌더링 |
+| [src/review/graph.py](src/review/graph.py) | `build_graph` | 메인 에이전트 그래프 (노드 함수 `input_guardrail` → `planner` → `review_team` → `output_validate` → `synthesize` → `render` → `hitl` → `post`) |
+| [src/review/graph.py](src/review/graph.py) | `run_query`, `resume_review` | 핵심 함수 (`answer`·`contexts`·`trace` 반환), HITL 재개. 과정 규약 경로 [src/agent.py](src/agent.py)로 재노출 |
+| [src/review/team.py](src/review/team.py) | `plan_reviews`, `build_reviewer`, `run_review_team` | 규칙 기반 planner, `create_agent` 리뷰어, supervisor, 보완 단계 |
+| [src/review/summary.py](src/review/summary.py) | `secbug_line`, `style_line`, `scope_line`, `change_violation` | 요약 2·3·4줄(코드)과 1·5줄(LLM) 규칙 검사 |
+| [src/review/prompts.py](src/review/prompts.py) | `BUG_PROMPT`, `STYLE_PROMPT`, `SYNTH_PROMPT` | 리뷰 흐름의 LLM 프롬프트 |
+| [src/tools/](src/tools/) | `build_tools` (`ruff_check`, `search_evidence`), `run_ruff`, `github_post_comment` | 도메인 도구 (게시는 dry-run). `src.tools`로 재노출 |
+| [src/evidence/search.py](src/evidence/search.py) | `build_retriever`, `HybridRetriever.search`, `rrf_merge` | RAG 파이프라인 (BM25 + 벡터, RRF). 과정 규약 경로 [src/retriever.py](src/retriever.py)로 재노출 |
+| [src/guardrails/](src/guardrails/) | `check_input`, `check_output`, `cross_check_pep8`, `verify_api_claims`, `masking_middleware` | 입력 가드레일, 근거 존재 검사, C2, API 존재 주장 검증, 마스킹 미들웨어 |
+| [src/findings/schema.py](src/findings/schema.py) | `Evidence` → `Finding` → `Review` | 지적 데이터 모델 (여러 도메인 공통) |
+| [src/report/render.py](src/report/render.py) | `render_review` | 터미널 Markdown 렌더링 |
+| [src/shared/config.py](src/shared/config.py) | `get_llm`, `get_embeddings` | 모델·리전·환경 설정 (Sonnet 4.6, us-west-1) |
 | [evaluation/run_eval.py](evaluation/run_eval.py) | `judge_case`, `alignment_counts`, `main` | 인-아웃 평가, 근거-지적 일치율 |
-| [src/gui_server.py](src/gui_server.py) | `list_commits`, `start_job`, `decide` | 시연용 로컬 GUI (커밋 목록, 별도 스레드 리뷰, 승인/거절) |
+| [src/interfaces/gui_server.py](src/interfaces/gui_server.py) | `list_commits`, `start_job`, `decide` | 시연용 로컬 GUI (커밋 목록, 별도 스레드 리뷰, 승인/거절) |
 | [evaluation/run_ragas.py](evaluation/run_ragas.py) | `main` | RAGAS 4개 지표 |

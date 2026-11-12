@@ -41,7 +41,7 @@ MAIN_SET_MAX_ID = 20  # 본 세트 1~20번 (21번부터는 추가 세트)
 
 JUDGE_MODEL_ID = "us.amazon.nova-pro-v1:0"
 EMBEDDING_MODEL_ID = "amazon.titan-embed-text-v2:0"
-# 역할별 리전 (src/config.py의 JUDGE_REGION·EMBEDDING_REGION과 같은 값으로 유지 —
+# 역할별 리전 (src/shared/config.py의 JUDGE_REGION·EMBEDDING_REGION과 같은 값으로 유지 —
 # 이 파일은 .venv-eval에서 돌아 src를 import하지 않음). `.env` 리전은 읽지 않음
 JUDGE_REGION = "us-east-1"
 EMBEDDING_REGION = "us-east-1"

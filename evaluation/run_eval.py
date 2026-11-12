@@ -31,17 +31,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from src import config  # noqa: E402
-from src import diff_parser as dp  # noqa: E402
-from src.agent import extract_diff_path, run_query  # noqa: E402
-from src.guardrails import (  # noqa: E402
+from src.diff import parser as dp  # noqa: E402
+from src.guardrails.input import (  # noqa: E402
     PII_PATTERNS,
     SECRET_PATTERNS,
     check_input,
-    pep8_alignment,
-    ruff_truth,
 )
-from src.observability import duration_ms  # noqa: E402
+from src.guardrails.output import pep8_alignment, ruff_truth  # noqa: E402
+from src.observability.trace import duration_ms  # noqa: E402
+from src.review.graph import extract_diff_path, run_query  # noqa: E402
+from src.shared import config  # noqa: E402
 
 CSV_PATH = ROOT / "evaluation" / "test_queries.csv"
 MAIN_SET_MAX_ID = 20  # 본 세트 1~20번. 21번부터는 추가 세트(함정 케이스)
@@ -403,7 +402,7 @@ def ruff_record(trace: list[dict], diff_text: str) -> dict:
     부른 파일만 넣습니다 (인자가 비었으면 도구와 같이 모든 .py 파일).
     run_ragas.py가 faithfulness contexts로 씁니다.
     """
-    from src.tools import run_ruff
+    from src.tools.ruff import run_ruff
 
     by_path = {f.path: f for f in check_input(diff_text).py_files}
     called: list[str] = []
@@ -447,7 +446,7 @@ def reference_for(case: dict) -> dict:
     run_ragas.py는 그 케이스를 context_precision·context_recall에서 뺍니다.
     `run_ragas.py`가 `src/`를 import하지 않으므로 원문을 실행 기록에 같이 저장합니다.
     """
-    from src.retriever import load_corpus
+    from src.evidence.corpus import load_corpus
 
     chunks = {d.metadata["rule_id"]: d for d in load_corpus()}
     ids = list(dict.fromkeys(DOC_ID_RE.findall(case["expected_traits"])))
@@ -883,7 +882,7 @@ def main(argv=None) -> int:
     print(f"리뷰 모델: {model_key} ({review_model_id}) · 판정: {meta['judge_model']}")
     print(f"케이스 {len(cases)}건 · 실행 기록: {run_dir}")
 
-    from src.retriever import build_retriever
+    from src.evidence.search import build_retriever
 
     retriever = build_retriever()  # 한 번만 만들어 모든 케이스가 같이 씀
 

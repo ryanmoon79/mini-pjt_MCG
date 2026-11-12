@@ -28,5 +28,5 @@ if errorlevel 1 (
   exit /b 1
 )
 echo Python: %PY%
-"%PY%" -m src.gui_server %*
+"%PY%" -m src.interfaces.gui_server %*
 pause

@@ -12,11 +12,11 @@ sys.stdout.reconfigure(encoding="utf-8")
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
-from src import config  # noqa: E402
-from src import diff_parser as dp  # noqa: E402
 from src.agent import run_query  # noqa: E402
-from src.guardrails import check_input  # noqa: E402
-from src.reviewers import _task_message  # noqa: E402
+from src.diff import parser as dp  # noqa: E402
+from src.guardrails.input import check_input  # noqa: E402
+from src.review.team import _task_message  # noqa: E402
+from src.shared import config  # noqa: E402
 from src.tools import reconstruct_file  # noqa: E402
 
 OUT = Path(sys.argv[1])

@@ -108,6 +108,10 @@ GUI 규칙은 [CLAUDE.md](CLAUDE.md) 6번 "GUI"를 따릅니다. 에이전트·C
     - run_meta에 기록: 실행이 두 번(14:59–15:2x, 재개 시점)에 나뉘었고 그 사이 AWS 키가 바뀜(1차는 이전 키, 2차는 새 키) — 리뷰 모델(Haiku)·코드(`00807f1`)·판정기(Nova Pro, us-east-1)는 같음.
     - 끝나면 결과를 main `evaluation/runs/`로 복사하고 round3_report.md 1·6절 갱신, `git worktree remove --force ../miniPJT-round3`.
     - 6번(A 실패)은 판단이 어려우면 한도가 풀린 뒤 Haiku로 1회 더(별도 실행 ID).
+- [x] **R1 src/ 도메인 구조 리팩터링 (동작 보존, 2026-11-12, 별도 커밋)** — 평평한 `src/*.py` 12개를 도메인 폴더로: `shared/`(config·review_settings) · `findings/`(지적 모델) · `diff/` · `observability/`(trace·usage) · `evidence/`(corpus·search) · `tools/`(ruff·agent_tools·github) · `guardrails/`(input·output·middleware·schema) · `report/`(render) · `review/`(graph·team·summary·line_length·prompts·schema) · `interfaces/`(cli·gui_server). 과정 규약 경로는 `src/agent.py`·`src/retriever.py` 재노출 파일과 `src/tools/__init__.py`로 유지. 실행 명령은 `python -m src.interfaces.cli`·`python -m src.interfaces.gui_server`(run.bat 반영, 이전 명령 호환 파일은 두지 않음).
+  - 층 규칙(CLAUDE.md 2번 "파일 배치 규칙"): interfaces 5 → review 4 → guardrails·report 3 → evidence·tools 2 → diff·observability·findings 1 → shared 0, 다른 도메인은 아래층만 import. 확인: `tests/test_layers.py`.
+  - 동작 보존 확인: 가짜 모델로 평가 diff 22건을 옮기기 전후에 돌려 `answer`·`contexts`·`trace`(시각·thread_id 제외)가 **바이트 단위로 같음**, 테스트 68건·ruff 0건, 실제 Sonnet 03번 1건(25.6초, 오류 0, 승인 대기), CLI(거절·`--verbose`), GUI(`run.bat` → 화면 200, `/api/diffs`, 다른 Host·Origin 없는 POST 403).
+  - 다음 후보: **`review/graph.py` 노드 클로저 분리(동작 보존 리팩터링)** — `build_graph` 안의 노드 함수(입력 가드레일·planner·리뷰 팀·출력 검증·종합·렌더링·HITL·게시)를 `RunContext`를 받는 모듈 함수로 꺼내기. 같은 22건 출력 비교로 확인.
 - [x] **리뷰 모델 Sonnet 4.6 확정 (사용자 결정, 2026-11-12)** — `us.anthropic.claude-sonnet-4-6`, `us-west-1`. **모든 역할(supervisor·리뷰어 2종·종합·고치는 방법 재생성)이 Sonnet**, 역할별 모델 프리셋은 만들지 않음. `--review-model haiku|gpt-oss`는 비교 실행용으로만 남김.
   - 이유(round3): Haiku는 계정 일일 토큰 한도로 평가를 끝까지 못 돌림(1차·3차 A 모두 중단). gpt-oss는 결과 도구를 건너뛰거나 JSON·이름표 글로 답해 structured none·종합 실패가 생김(평가 10번). Sonnet은 결과 수집이 가장 안정적(none 0/41)이고 bug를 가장 많이 찾음. 대신 오탐(9·17·22번, 1.x API 착각)과 토큰(케이스당 입력 B의 약 2.9배)이 단점 → 다음 목표는 Sonnet 오탐 줄이기.
 - [x] **round4 준비 — Sonnet 오탐 줄이기** (코드 반영 완료, 평가는 사용자 판단 후)

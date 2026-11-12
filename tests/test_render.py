@@ -1,4 +1,4 @@
-"""src/render.py 형식 테스트 (TASKS A5).
+"""src/report/render.py 형식 테스트 (TASKS A5).
 
 03번 평가 diff(교육용 더미 데이터)로 렌더링한 결과의 **구조**가 기준 화면
 docs/output_example.md와 같은지 비교합니다. 내용(지적 수·문장)은 다르므로
@@ -7,10 +7,10 @@ docs/output_example.md와 같은지 비교합니다. 내용(지적 수·문장)�
 
 import re
 
-from src import config
-from src import diff_parser as dp
-from src.render import render_review
-from src.schema import Review
+from src.diff import parser as dp
+from src.findings.schema import Review
+from src.report.render import render_review
+from src.shared import config
 
 EXAMPLE = config.ROOT_DIR / "docs" / "output_example.md"
 
@@ -229,7 +229,7 @@ def test_line_length_is_a_short_note_not_numbered_items():
     줄 번호만 보이고 길이·코드/주석 구분은 --verbose(line_length_detail)에만 있다.
     건수·다듬을 것·HITL 번호에서 빠지며, Review JSON에는 개별 지적이 그대로 남는다.
     """
-    from src.render import line_length_detail, line_length_of, ordered_items
+    from src.report.render import line_length_detail, line_length_of, ordered_items
 
     files = _files_03()
     review = Review(

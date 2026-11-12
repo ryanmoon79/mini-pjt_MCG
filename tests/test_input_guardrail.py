@@ -1,6 +1,6 @@
 """입력 가드레일 단위 테스트 (TASKS A4). 교육용 더미 데이터입니다."""
 
-from src.guardrails import check_input, mask_text
+from src.guardrails.input import check_input, mask_text
 
 
 def _diff(*added: str) -> str:
@@ -40,7 +40,7 @@ def test_password_assignment_masks_only_the_value():
 
 def test_case19_injection_stays_medium():
     """평가 19번: '리뷰 도구에게' 부르는 명령문 → security medium 3건 그대로."""
-    from src import config
+    from src.shared import config
 
     text = (config.EVAL_DIFFS_DIR / "19_injection.diff").read_text(encoding="utf-8")
     hits = [f for f in check_input(text).findings if f.line == 8]
@@ -50,7 +50,7 @@ def test_case19_injection_stays_medium():
 
 def test_quoted_or_pattern_example_is_low_note():
     """따옴표·정규식 패턴·탐지 주석 안의 예시, 부르는 말 없는 명령문은 low 참고."""
-    from src.guardrails import is_injection_note
+    from src.guardrails.input import is_injection_note
 
     result = check_input(
         _diff(
@@ -107,8 +107,8 @@ def test_dummy_comment_above_lowers_to_note():
     꼭 고칠 것과 요약 2줄에서 빠지고, 마스킹은 그대로다. 같은 줄 주석도 인정하지만
     코드 줄 문자열 속 표시(위 줄이 코드)는 인정하지 않는다.
     """
-    from src.agent import _must, secbug_line
-    from src.guardrails import is_note
+    from src.guardrails.input import is_note
+    from src.review.summary import _must, secbug_line
 
     result = check_input(
         _diff(

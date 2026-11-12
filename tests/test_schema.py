@@ -1,9 +1,12 @@
-"""src/schema.py 단위 테스트 (TASKS A2). 교육용 더미 데이터입니다."""
+"""src/findings/schema.py·src/review/schema.py 단위 테스트 (TASKS A2).
+
+교육용 더미 데이터입니다.
+"""
 
 import pytest
 from pydantic import ValidationError
 
-from src.schema import Review
+from src.findings.schema import Review
 
 FINDING = {
     "issue_type": "bug",
