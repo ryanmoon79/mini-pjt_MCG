@@ -982,3 +982,23 @@ def test_post_body_keeps_line_length_note_and_verbose_has_detail(
     )
     assert posted["post"]["status"] == "posted"
     assert "줄 길이 초과 1줄 (기준 88칸): app/prompts.py 9" in posted["post"]["body"]
+
+
+def test_default_review_model_is_sonnet_in_us_west_1():
+    """기본 리뷰 모델은 Sonnet 4.6(us-west-1), 나머지 모델은 us-east-1 (호출 없음)."""
+    assert config.REVIEW_MODEL_ID == "us.anthropic.claude-sonnet-4-6"
+    assert config.review_model_region() == "us-west-1"
+    assert config.review_model_region(config.REVIEW_MODELS["haiku"]) == "us-east-1"
+    assert config.review_model_region(config.REVIEW_MODELS["gpt-oss"]) == "us-east-1"
+    assert sorted(config.REVIEW_MODELS) == ["gpt-oss", "haiku", "sonnet"]
+
+
+def test_regions_are_separated_by_role_and_match_ragas():
+    """리전은 역할별 상수: 리뷰(모델별)·임베딩·판정. RAGAS 파일의 값과 같아야 함."""
+    import re
+
+    assert (config.EMBEDDING_REGION, config.JUDGE_REGION) == ("us-east-1", "us-east-1")
+    ragas = (config.ROOT_DIR / "evaluation" / "run_ragas.py").read_text("utf-8")
+    for name in ("JUDGE_REGION", "EMBEDDING_REGION"):
+        (value,) = re.findall(rf'^{name} = "([^"]+)"', ragas, re.M)
+        assert value == getattr(config, name)

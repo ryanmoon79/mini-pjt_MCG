@@ -258,7 +258,7 @@ def judge_by_llm(
 
     config.load_env()
     judge = ChatBedrockConverse(
-        model=JUDGE_MODEL_ID, region_name=config.AWS_REGION, temperature=0
+        model=JUDGE_MODEL_ID, region_name=config.JUDGE_REGION, temperature=0
     ).with_structured_output(Verdicts)
     # 판정기 v2: 항목 문장을 그대로 옮겨 받지 않고 번호로 주고받음
     # (1차의 "판정 누락" 원인)
@@ -796,7 +796,7 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--run-id",
         default=datetime.now().strftime("%Y%m%d-%H%M%S"),
-        help="실행 기록 폴더 이름. 끝에 리뷰 모델 이름(-gpt-oss / -haiku)이 붙습니다",
+        help="실행 기록 폴더 이름 (끝에 -sonnet / -gpt-oss / -haiku가 붙음)",
     )
     parser.add_argument(
         "--review-model",
@@ -850,7 +850,12 @@ def main(argv=None) -> int:
     run_dir = config.RUNS_DIR / run_id
     meta = {
         "run_id": run_id,
-        "review_model": {"key": model_key, "id": review_model_id},
+        "review_model": {
+            "key": model_key,
+            "id": review_model_id,
+            "region": config.review_model_region(review_model_id),
+        },
+        "python": sys.executable,  # 실행한 가상환경 (조건 구분용)
         "judge_model": JUDGE_MODEL_ID if not args.no_judge else None,
         "case_filter": "core" if args.core else (args.cases or args.category or "all"),
         "case_ids": [c["id"] for c in cases],

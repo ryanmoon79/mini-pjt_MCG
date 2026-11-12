@@ -30,7 +30,9 @@
 |---|---|
 | 언어 | Python 3.12 이상 |
 | LangChain / LangGraph | **1.x 기준**. 교육 환경 설치본: `langchain 1.4.7`, `langchain-core 1.7.3`, `langgraph 1.2.19`. 메이저 1.x 범위로 고정 (`langchain>=1.4,<2`, `langgraph>=1.2,<2`) |
-| LLM (리뷰) | `openai.gpt-oss-120b-1:0` (Amazon Bedrock, `us-east-1`), `ChatBedrockConverse`, temperature 0, `supports_tool_choice_values=("auto","any","tool")`. **AGENTS.md 고정값(Sonnet 4.5) → Haiku 4.5(1·2차 평가) → gpt-oss-120b(다음 버전), 모두 사용자 결정** — Sonnet·Haiku가 차례로 계정 일일 토큰 한도에 걸려 개발이 막혔기 때문 (README 회고에 기록). gpt-oss는 답에 추론 블록이 섞이고(마스킹 미들웨어가 그 text도 가림), `tool_choice`를 받아도 강제하지 않아 결과 도구를 건너뛸 수 있음 → 리뷰어 보완 단계(`reviewers._finalize`), 종합 노드는 빈 구조화 출력을 형식 오류로 처리 |
+| LLM (리뷰) | **기본값** `us.anthropic.claude-sonnet-4-6` (Amazon Bedrock, **`us-west-1`**), `ChatBedrockConverse`, temperature 0. **AGENTS.md 고정값(Sonnet 4.5) → Haiku 4.5(1·2차 평가) → gpt-oss-120b(다음 버전) → Sonnet 4.6(현재), 모두 사용자 결정** — 앞의 모델들이 차례로 계정 일일 토큰 한도에 걸려 개발·평가가 막혔기 때문 (README 회고에 기록). 고를 수 있는 모델은 `config.REVIEW_MODELS`(`sonnet` 기본 · `gpt-oss` · `haiku`), CLI·`run_eval.py`의 `--review-model`. **리전은 역할별 코드 상수**: 리뷰 모델은 `config.REVIEW_MODEL_REGIONS`(Sonnet 4.6만 `us-west-1`, 없는 모델은 `AWS_REGION`=`us-east-1`), 임베딩 `EMBEDDING_REGION`=`us-east-1`, 판정 `JUDGE_REGION`=`us-east-1`(`run_ragas.py`에도 같은 값, 테스트로 확인). 모든 Bedrock 호출이 `region_name`을 직접 넘기므로 **`.env`의 리전 변수(`AWS_DEFAULT_REGION` 등)는 읽지 않고, `.env`에 리전을 넣을 필요가 없습니다.** **모델별 호출 권한은 `.env`의 AWS 키에 따라 다릅니다**(Sonnet 4.6은 바꾼 새 키에서만 허용 — worktree에 `.env`를 복사했다면 키를 바꾼 뒤 다시 복사) |
+| gpt-oss 대응 (선택 모델) | gpt-oss를 고르면 `supports_tool_choice_values=("auto","any","tool")`을 직접 지정합니다. 답에 추론 블록이 섞이고(마스킹 미들웨어가 그 text도 가림), `tool_choice`를 받아도 강제하지 않아 결과 도구를 건너뛰거나 JSON 글로 답할 수 있음 → 리뷰어 보완 단계(`reviewers._finalize`, JSON 글 파싱), 종합 노드는 빈 구조화 출력을 형식 오류로 처리 |
+| LLM (3차 평가 비교) | 같은 코드(커밋 `00807f1`)로 리뷰 모델만 바꿔 비교(`evaluation/round3_report.md`), 판정은 모두 Nova Pro. **조건 A** Haiku 4.5(2차와 같은 모델) · **조건 B** gpt-oss · **조건 C** Sonnet 4.6(us-west-1). `00807f1` 코드에는 Sonnet 선택지가 없어 C는 모델만 주입하는 별도 실행 스크립트로 돌렸습니다(에이전트 코드는 그대로) |
 | 임베딩 | `amazon.titan-embed-text-v2:0` (1024차원) |
 | 벡터 DB | Chroma — `persist_directory="./chroma_db"`, `collection_name="sds_policies"`. 이름이 코드 리뷰 코퍼스와 맞지 않지만 **과정 고정값(AGENTS.md)이라 유지** |
 | 검색 방식 | **하이브리드**: `langchain_community.retrievers.BM25Retriever`(키워드, `rank_bm25` 사용) + Chroma 벡터 검색을 **RRF(Reciprocal Rank Fusion)로 직접 합침**. `EnsembleRetriever`는 1.x에서 `langchain_classic`으로 옮겨져 사용 금지 목록에 해당하므로 쓰지 않음. 두 패키지 모두 설치본에서 import 확인 |
@@ -83,7 +85,7 @@ mini-pjt_{본인이름}/
 │   ├── validate_test_queries.py # CSV 형식·건수 검증 (건수·비율은 본 세트만)
 │   ├── round1_report.md        # 1차 자체 평가 결과
 │   ├── round2_report.md        # 2차 자체 평가 결과 (개선 후, 태그 submission-round2)
-│   ├── round3_report.md        # 3차(다음 버전) 결과: 조건 A(Haiku)·B(gpt-oss) 구분
+│   ├── round3_report.md        # 3차(다음 버전) 결과: 조건 A(Haiku)·B(gpt-oss)·C(Sonnet 4.6) 구분
 │   ├── notes/                  # 조사 자료 (예: case10/ — gpt-oss 10번 오탐 조사, 마스킹 후)
 │   ├── run_eval.py             # 케이스 실행·통과 판정, 근거 확인 비율, 근거-지적 일치율, 응답 시간, 재채점
 │   ├── run_ragas.py            # RAGAS 4개 지표 (.venv-eval, 실행 기록만 읽음)

@@ -26,7 +26,14 @@ import json
 import sys
 
 from src.agent import resume_review, run_query
-from src.config import MAX_LINES_CAP, MAX_PY_CHANGED_LINES, REVIEW_MODELS, get_llm
+from src.config import (
+    MAX_LINES_CAP,
+    MAX_PY_CHANGED_LINES,
+    REVIEW_MODEL_KEY,
+    REVIEW_MODELS,
+    get_llm,
+    review_model_region,
+)
 from src.render import render_verbose
 
 APPROVAL_HELP = "[y] 승인  [n] 거절  [i 번호...] 그 항목을 빼고 승인 (예: i 2 3)"
@@ -62,8 +69,8 @@ def main(argv: list[str] | None = None) -> int:
     review.add_argument(
         "--review-model",
         choices=sorted(REVIEW_MODELS),
-        default="gpt-oss",
-        help="리뷰 모델 (기본 gpt-oss)",
+        default=REVIEW_MODEL_KEY,
+        help=f"리뷰 모델 (기본 {REVIEW_MODEL_KEY})",
     )
     review.add_argument(
         "--max-lines",
@@ -87,11 +94,16 @@ def main(argv: list[str] | None = None) -> int:
         max_lines=args.max_lines,
     )
     if args.batch:
-        result["review_model"] = {"key": args.review_model, "id": model_id}
+        result["review_model"] = {
+            "key": args.review_model,
+            "id": model_id,
+            "region": review_model_region(model_id),
+        }
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
 
-    print(f"리뷰 모델: {args.review_model} ({model_id})")
+    region = review_model_region(model_id)
+    print(f"리뷰 모델: {args.review_model} ({model_id}, {region})")
     print(result["answer"])
     if args.verbose:
         print(render_verbose(result["trace"]))

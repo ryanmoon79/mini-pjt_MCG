@@ -102,7 +102,12 @@ GUI 규칙은 [CLAUDE.md](CLAUDE.md) 6번 "GUI"를 따릅니다. 에이전트·C
 - [ ] **D5 다음 버전 평가** (커밋 `00807f1`) — B 완료, **A 보류**(Haiku 일일 토큰 한도, `00807f1` worktree로 재실행 예정 — 절차는 round3_report.md 1절).
   - [x] B: gpt-oss 22건 — 본 세트 17/20(실패 4·9·10), 추가 1/2(실패 22), 실행 오류 0, structured none 2/51(JSON 글 응답). 커밋 재리뷰 5건(day07·day05·day03·day06 500·`cd65c0f` 409)과 토큰(500줄은 추정치). 리포트 `evaluation/round3_report.md`.
   - [x] README를 round3 기준으로 갱신(2차 값은 비교용으로 나란히, 리뷰 모델 표시).
-  - [ ] A: Haiku 핵심 7건 → round3_report.md 1절·6절 결론만 갱신.
+  - [ ] A: Haiku — **worktree `../miniPJT-round3` (커밋 `00807f1`) 유지 중, (A) 미완료, worktree 코드 수정 금지.**
+    - 완료: 핵심 7건(`round3-haiku`, 6/7) + 나머지 중 1·5·6·7·8·10·12(`round3-rest-haiku`). 9번은 일일 토큰 한도로 실행 오류, 11·13·16·18·20·21·22 미실행.
+    - 한도가 풀리면 9·11·13·16·18·20·21·22만 **같은 결과 폴더에 이어서** 실행: worktree에서 먼저 `cp evaluation/runs/round3-rest-haiku/run_meta.json evaluation/runs/round3-rest-haiku/run_meta_part1.json`(시작 때 run_meta.json을 덮어쓰므로) 뒤 `../../.venv/Scripts/python.exe evaluation/run_eval.py --review-model haiku --cases 9,11,13,16,18,20,21,22 --run-id round3-rest`. 실행 전에 main의 `.env`를 worktree로 다시 복사.
+    - run_meta에 기록: 실행이 두 번(14:59~15:2x, 재개 시점)에 나뉘었고 그 사이 AWS 키가 바뀜(1차는 이전 키, 2차는 새 키) — 리뷰 모델(Haiku)·코드(`00807f1`)·판정기(Nova Pro, us-east-1)는 같음.
+    - 끝나면 결과를 main `evaluation/runs/`로 복사하고 round3_report.md 1·6절 갱신, `git worktree remove --force ../miniPJT-round3`.
+    - 6번(A 실패)은 판단이 어려우면 한도가 풀린 뒤 Haiku로 1회 더(별도 실행 ID).
 - [x] **round3 이후 ② JSON 글 응답 파싱** — 리뷰어 답·보완 답이 JSON 글이면 파싱(`agent_text`·`finalize_text`), 모두 실패할 때만 none. 확인: `test_reviewer_json_text_is_parsed_without_extra_call`, `test_finalize_json_text_is_parsed_and_only_garbage_is_none`. 종합 노드 글 응답(10번)은 범위 밖, 결정 대기.
 - [x] **round3 이후 ③ 줄 길이 화면 간략화** — "## 참고" 두 줄, 상세는 --verbose, 건수·HITL 번호 제외, 추천 개선안 줄 길이 최대 1개, Review JSON은 그대로. 확인: `test_line_length_is_a_short_note_not_numbered_items` 외 3건, 4·14·15·17번 실제 실행(참고 줄로 판정 항목 통과, 17번은 2차 시도).
   - 기준 시점: 2차 제출은 태그 `submission-round2`(커밋 `7d2400c`), 다음 버전은 main (submission-round2 태그 이후).

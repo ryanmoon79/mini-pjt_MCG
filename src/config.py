@@ -15,16 +15,24 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 # ── 모델 ────────────────────────────────────────────────────────────
-# 리뷰 모델: AGENTS.md 고정값(Sonnet 4.5) → Haiku 4.5 → gpt-oss-120b (모두 사용자 결정,
-# CLAUDE.md 1번). Sonnet·Haiku 모두 계정 일일 토큰 한도에 걸려 개발·평가가 막혔기 때문.
-# gpt-oss는 답에 추론 블록(reasoning_content)이 섞여 content가 목록으로 옵니다.
+# 리뷰 모델: AGENTS.md 고정값(Sonnet 4.5) → Haiku 4.5 → gpt-oss-120b → Sonnet 4.6
+# (모두 사용자 결정, CLAUDE.md 1번). 앞의 모델들이 계정 일일 토큰 한도에 걸려
+# 개발·평가가 막혔기 때문. gpt-oss는 답에 추론 블록이 섞여 content가 목록으로 옵니다.
 REVIEW_MODELS = {
-    "gpt-oss": "openai.gpt-oss-120b-1:0",  # 현재 기본값 (다음 버전)
-    "haiku": "us.anthropic.claude-haiku-4-5-20251001-v1:0",  # 1·2차 평가 모델
+    "sonnet": "us.anthropic.claude-sonnet-4-6",  # 현재 기본값 (us-west-1)
+    "gpt-oss": "openai.gpt-oss-120b-1:0",  # 3차 조건 B
+    "haiku": "us.anthropic.claude-haiku-4-5-20251001-v1:0",  # 1·2차 평가, 3차 조건 A
 }
-REVIEW_MODEL_ID = REVIEW_MODELS["gpt-oss"]
+REVIEW_MODEL_KEY = "sonnet"
+REVIEW_MODEL_ID = REVIEW_MODELS[REVIEW_MODEL_KEY]
 EMBEDDING_MODEL_ID = "amazon.titan-embed-text-v2:0"  # 1024차원
-AWS_REGION = "us-east-1"
+# ── 리전 (역할별, 코드 상수) ─────────────────────────────────────────
+# 모든 Bedrock 호출은 아래 값을 region_name으로 직접 넘깁니다. 그래서 `.env`의
+# AWS_DEFAULT_REGION은 읽지 않습니다(있어도 동작이 바뀌지 않음).
+AWS_REGION = "us-east-1"  # 리뷰 모델 리전의 기본값 (REVIEW_MODEL_REGIONS에 없는 모델)
+REVIEW_MODEL_REGIONS = {REVIEW_MODELS["sonnet"]: "us-west-1"}  # 리뷰 모델별 리전
+EMBEDDING_REGION = "us-east-1"  # 검색 임베딩 (Titan v2)
+JUDGE_REGION = "us-east-1"  # 평가 판정 LLM (Nova Pro, run_eval.py)
 TEMPERATURE = 0
 
 # ── 경로 ────────────────────────────────────────────────────────────
@@ -72,8 +80,9 @@ def get_llm(model_id: str | None = None):
 
     호출할 때마다 새 객체를 만듭니다. 그래프·노드 생성 함수는 `llm` 인자가
     `None`일 때만 이 함수를 부르므로, 테스트에서는 실제 모델이 만들어지지 않습니다.
-    `model_id`가 없으면 `REVIEW_MODEL_ID`(gpt-oss). 평가 실행기만
+    `model_id`가 없으면 `REVIEW_MODEL_ID`(Sonnet 4.6, us-west-1). CLI·평가 실행기는
     `--review-model`로 다른 모델(`REVIEW_MODELS`)을 고릅니다.
+    리전은 `review_model_region`으로 모델마다 정합니다.
     """
     load_env()
     from langchain_aws import ChatBedrockConverse
@@ -89,11 +98,16 @@ def get_llm(model_id: str | None = None):
         extra["supports_tool_choice_values"] = ("auto", "any", "tool")
     return ChatBedrockConverse(
         model=model_id,
-        region_name=AWS_REGION,
+        region_name=review_model_region(model_id),
         temperature=TEMPERATURE,
         config=bedrock_client_config(),
         **extra,
     )
+
+
+def review_model_region(model_id: str | None = None) -> str:
+    """리뷰 모델의 Bedrock 리전 (Sonnet 4.6은 us-west-1, 나머지는 AWS_REGION)."""
+    return REVIEW_MODEL_REGIONS.get(model_id or REVIEW_MODEL_ID, AWS_REGION)
 
 
 def get_embeddings():
@@ -103,7 +117,7 @@ def get_embeddings():
 
     return BedrockEmbeddings(
         model_id=EMBEDDING_MODEL_ID,
-        region_name=AWS_REGION,
+        region_name=EMBEDDING_REGION,
         config=bedrock_client_config(),
     )
 

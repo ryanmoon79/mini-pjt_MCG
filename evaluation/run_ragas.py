@@ -41,7 +41,10 @@ MAIN_SET_MAX_ID = 20  # 본 세트 1~20번 (21번부터는 추가 세트)
 
 JUDGE_MODEL_ID = "us.amazon.nova-pro-v1:0"
 EMBEDDING_MODEL_ID = "amazon.titan-embed-text-v2:0"
-AWS_REGION = "us-east-1"
+# 역할별 리전 (src/config.py의 JUDGE_REGION·EMBEDDING_REGION과 같은 값으로 유지 —
+# 이 파일은 .venv-eval에서 돌아 src를 import하지 않음). `.env` 리전은 읽지 않음
+JUDGE_REGION = "us-east-1"
+EMBEDDING_REGION = "us-east-1"
 ALL_METRICS = (
     "faithfulness",
     "answer_relevancy",
@@ -137,10 +140,10 @@ def build_judges():
     load_dotenv(ROOT / ".env", override=False)
     retry = Config(retries={"max_attempts": 10, "mode": "adaptive"})
     llm = ChatBedrockConverse(
-        model=JUDGE_MODEL_ID, region_name=AWS_REGION, temperature=0, config=retry
+        model=JUDGE_MODEL_ID, region_name=JUDGE_REGION, temperature=0, config=retry
     )
     emb = BedrockEmbeddings(
-        model_id=EMBEDDING_MODEL_ID, region_name=AWS_REGION, config=retry
+        model_id=EMBEDDING_MODEL_ID, region_name=EMBEDDING_REGION, config=retry
     )
     return LangchainLLMWrapper(llm), LangchainEmbeddingsWrapper(emb)
 
