@@ -1002,3 +1002,65 @@ def test_regions_are_separated_by_role_and_match_ragas():
     for name in ("JUDGE_REGION", "EMBEDDING_REGION"):
         (value,) = re.findall(rf'^{name} = "([^"]+)"', ragas, re.M)
         assert value == getattr(config, name)
+
+
+# ── round4: API 존재 주장 검증 (설치된 패키지의 실제 import) ──────────────
+
+
+def _claim(file, line, message):
+    return {
+        "issue_type": "bug",
+        "file": file,
+        "line": line,
+        "severity": "high",
+        "message": message,
+        "evidence": [{"type": "code", "source": f"{file}:{line}"}],
+        "suggestion": "s",
+    }
+
+
+def test_api_absence_claim_is_dropped_when_it_imports(retriever):
+    """create_agent가 1.x에 없다는 지적(9번 Sonnet 오탐)은 실제 import로 확인해 제거."""
+    import_claim = _claim(
+        "app/review_agent.py",
+        9,
+        "`from langchain.agents import create_agent`는 LangChain 1.x에 존재하지 "
+        "않는 경로입니다.",
+    )
+    call_claim = _claim(
+        "app/review_agent.py",
+        39,
+        "`create_agent(model=..., tools=..., system_prompt=...)`는 존재하지 않는 "
+        "API 호출입니다.",
+    )
+    out = run_query(
+        "data/eval_diffs/09_clean_create_agent.diff 를 리뷰해줘",
+        llm=_models([import_claim, call_claim]),
+        retriever=retriever,
+    )
+    ev = next(e for e in out["trace"] if e.get("stage") == "output")
+    dropped = {d["line"]: d for d in ev["api_claim_dropped"]}
+    assert set(dropped) == {9, 39}
+    assert "from langchain.agents import create_agent" in dropped[9]["targets"]
+    assert "langchain " in dropped[9]["reason"]  # 패키지 버전이 사유에 남음
+    assert dropped[39]["targets"][0].startswith("create_agent(model=, tools=,")
+    review = next(e["review"] for e in out["trace"] if e["type"] == "review")
+    assert not [f for f in review["findings"] if f["issue_type"] == "bug"]
+
+
+def test_removed_api_claim_is_kept():
+    """매핑표에서 "제거"인 LLMChain 지적은 유지 (import도 실제로 실패)."""
+    from src.guardrails import check_input, verify_api_claims
+    from src.schema import Finding
+
+    text = (config.EVAL_DIFFS_DIR / "03_llmchain.diff").read_text(encoding="utf-8")
+    finding = Finding.model_validate(
+        _claim(
+            "app/chain.py",
+            12,
+            "`from langchain.chains import LLMChain`은 LangChain 1.x에서 제거되어 "
+            "ImportError가 납니다.",
+        )
+    )
+    kept, dropped = verify_api_claims([finding], check_input(text).py_files)
+    assert kept == [finding] and dropped == []

@@ -710,3 +710,167 @@ def verify_syntax_claims(
             }
         )
     return kept, dropped, unverified
+
+
+# ── 출력 검사: API 존재 주장 검증 (round4, Sonnet의 1.x API 착각 대응) ─────
+
+# "X가 1.x에 없다/존재하지 않는다/제거됐다/import되지 않는다"는 주장 표현
+ABSENCE_CLAIM_RE = re.compile(
+    r"존재하지 않|없는\s*(경로|API|모듈|함수|클래스|이름|심볼)|"
+    r"(에|에는|에서)\s*없(습니다|다|으며|어|는)|제거(되었|됐|된|돼)|삭제(되었|됐|된)|"
+    r"import(할 수 없|되지 않|가 안|이 안)|ImportError|ModuleNotFoundError",
+)
+# 검증 대상 패키지 (리뷰 범위인 LangChain·LangGraph만; 다른 이름은 import하지 않음)
+API_CHECK_PREFIXES = ("langchain", "langgraph")
+# 이름 목록은 같은 줄 안에서만 (줄바꿈을 넘으면 다음 import 줄을 삼킴)
+_FROM_IMPORT_RE = re.compile(
+    r"from[ \t]+([\w.]+)[ \t]+import[ \t]+\(?[ \t]*([\w \t,]+)"
+)
+_DOTTED_RE = re.compile(r"`((?:langchain|langgraph)[\w]*(?:\.[\w]+)+)`")
+
+
+def _api_targets(text: str) -> list[tuple[str, str | None]]:
+    """글·코드에서 (모듈, 이름) 후보를 뽑습니다. `import X`·`X.Y` 표기도 받습니다."""
+    out: list[tuple[str, str | None]] = []
+    for module, names in _FROM_IMPORT_RE.findall(text):
+        for name in re.split(r"[\s,]+", names.strip()):
+            if name and name != "as":
+                out.append((module, name))
+    for dotted in _DOTTED_RE.findall(text):
+        module, _, name = dotted.rpartition(".")
+        out.append((module, name))
+    for module in re.findall(r"^\s*import\s+([\w.]+)", text, re.M):
+        out.append((module, None))
+    return [
+        (m, n)
+        for m, n in dict.fromkeys(out)
+        if m.split(".")[0].startswith(API_CHECK_PREFIXES)
+    ]
+
+
+def _importable(module: str, name: str | None) -> bool:
+    """설치된 패키지에서 실제로 import되는지 (모듈 import + 이름 존재)."""
+    import importlib
+
+    try:
+        mod = importlib.import_module(module)
+    except Exception:
+        return False
+    if name is None or hasattr(mod, name):
+        return True
+    try:  # 하위 모듈 이름일 수도 있음 (from pkg import submodule)
+        importlib.import_module(f"{module}.{name}")
+        return True
+    except Exception:
+        return False
+
+
+_CALL_RE = re.compile(r"\b([A-Za-z_]\w*)\(([^()]*)\)")
+
+
+def _file_imports(file: dp.FileDiff | None) -> dict[str, str]:
+    """변경 후 파일에 보이는 `from X import Y`로 이름 → 모듈 (LangChain·LangGraph만)."""
+    text = "\n".join(dp.new_side_lines(file).values()) if file else ""
+    return {
+        n: m
+        for m, n in _api_targets(text)
+        if n is not None  # `import X`는 호출 검증에 쓰지 않음
+    }
+
+
+def _call_ok(module: str, name: str, kwargs: list[str]) -> bool:
+    """함수가 import되고, 주장에 적힌 키워드 인자가 설치본 시그니처에 모두 있는지."""
+    import importlib
+    import inspect
+
+    try:
+        fn = getattr(importlib.import_module(module), name)
+        params = inspect.signature(fn).parameters
+    except Exception:
+        return False
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return True
+    return all(k in params for k in kwargs)
+
+
+def _call_targets(message: str, imports: dict[str, str]) -> list[tuple[str, str, list]]:
+    """설명에 적힌 호출 `f(a=…)` 중 이 파일이 import한 함수: (모듈, 이름, 키워드)."""
+    out = []
+    for name, args in _CALL_RE.findall(message):
+        if name in imports:
+            kwargs = re.findall(r"\b([A-Za-z_]\w*)\s*=", args)
+            out.append((imports[name], name, kwargs))
+    return out
+
+
+def _package_version(module: str) -> str:
+    from importlib.metadata import PackageNotFoundError, version
+
+    top = module.split(".")[0]
+    try:
+        return f"{top.replace('_', '-')} {version(top.replace('_', '-'))}"
+    except PackageNotFoundError:
+        return top
+
+
+def verify_api_claims(
+    findings: list[Finding], py_files: list[dp.FileDiff]
+) -> tuple[list[Finding], list[dict]]:
+    """API가 없다·제거됐다는 지적을 설치된 패키지의 실제 import로 검증합니다 (결정적).
+
+    - 대상: 설명(message)이 부재를 주장하는 bug·security 지적. 그 지적의 문장과 지적한
+      줄의 코드에서 LangChain·LangGraph import 대상(모듈, 이름)을 뽑고, 문장에 이름이나
+      모듈이 언급된 것만 봅니다.
+    - deprecated_map.md에서 1.x 상태가 "제거"인 API면 import 결과와 관계없이 유지합니다.
+    - 뽑은 대상이 모두 실제로 import되면 주장이 사실이 아니므로 제거하고 사유를
+      남깁니다. 대상을 못 뽑았거나 하나라도 import가 안 되면 유지합니다.
+
+    Returns:
+        (유지할 지적, 제거 기록 — 대상·패키지 버전·지적 전체)
+    """
+    removed = removed_import_patterns()
+    by_path = {f.path: f for f in py_files}
+    kept, dropped = [], []
+    for f in findings:
+        if f.issue_type not in {"bug", "security"} or not ABSENCE_CLAIM_RE.search(
+            f.message
+        ):
+            kept.append(f)
+            continue
+        file = by_path.get(f.file)
+        code = dp.new_side_lines(file).get(f.line, "") if file else ""
+        targets = [
+            (m, n)
+            for m, n in _api_targets(f.message + "\n" + code)
+            if (n and n in f.message) or m in f.message
+        ]
+        # 호출 주장: "create_agent(model=…, system_prompt=…)는 없는 API"처럼 이 파일이
+        # import한 함수의 호출을 문제 삼으면, 설치본 시그니처로 키워드 인자까지 확인
+        calls = _call_targets(f.message, _file_imports(file))
+        statements = [
+            f"from {m} import {n}" if n else f"import {m}" for m, n in targets
+        ] + [f"{n}({', '.join(k + '=' for k in kw)}) — {m}" for m, n, kw in calls]
+        on_removed_list = any(
+            p.search(s) for s in statements + [code] for p in removed.values()
+        )
+        ok = all(_importable(m, n) for m, n in targets) and all(
+            _call_ok(m, n, kw) for m, n, kw in calls
+        )
+        if not (targets or calls) or on_removed_list or not ok:
+            kept.append(f)
+            continue
+        targets = targets + [(m, n) for m, n, _ in calls]
+        dropped.append(
+            {
+                "file": f.file,
+                "line": f.line,
+                "issue_type": f.issue_type,
+                "severity": f.severity,
+                "targets": statements,
+                "reason": "설치된 패키지에서 import됨 ("
+                + ", ".join(sorted({_package_version(m) for m, _ in targets}))
+                + ") — 없다·제거됐다는 주장이 사실이 아님",
+                "finding": f.model_dump(),
+            }
+        )
+    return kept, dropped

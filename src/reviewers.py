@@ -43,6 +43,19 @@ _COMMON_RULES = """\
   (PEP 8 위반, 아직 동작하는 deprecated API 사용)
 - 같은 deprecated API라도 1.x에서 제거되어 실행이 실패하면 bug,
   경고만 나고 동작하면 style.
+- **ruff 규칙으로 잡히는 비교·스타일 문제는 style로만 분류하고 bug로 쓰지 않습니다**
+  (예: `== None` 비교 E711, `== True` 비교 E712, 이름 규칙 N8xx, import 순서 I001).
+  같은 줄에 다른 실제 버그가 있을 때만 그 버그를 따로 bug로 지적합니다.
+
+## 라이브러리 API 판단 규칙 (중요)
+- LangChain·LangGraph API가 **존재하는지, 제거·이동·변경됐는지는 deprecated
+  매핑표(search_evidence 결과)로만** 판단합니다. 기억에 의존해 "1.x에 없다",
+  "제거됐다", "import되지 않는다", "그런 인자는 없다"고 쓰지 않습니다.
+- 매핑표에 없는 API는 **존재하고 정상 동작한다고 봅니다**
+  (예: `from langchain.agents import create_agent`와 그 인자 `model`·`tools`·
+  `system_prompt`는 1.x의 정식 API).
+- 그런 주장은 출력 검증이 설치된 패키지에서 실제 import로 확인해, import되면
+  지적을 제거합니다.
 
 ## 근거 규칙
 - 지적마다 근거(evidence)를 최소 1개 붙입니다. 근거는 세 종류뿐입니다.

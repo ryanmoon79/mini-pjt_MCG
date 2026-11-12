@@ -31,13 +31,13 @@
   - 기록: `tests/test_agent.py` 3건(세 키·trace, 비밀값·이메일이 모델 입력·출력·trace 어디에도 없음, Java만 있는 diff는 모델 호출 0회로 거절) + `tests/test_input_guardrail.py` 3건 통과. supervisor가 계획된 리뷰어를 빠뜨리면 코드가 직접 실행. 그래프 상태에는 작은 값만 두고 무거운 객체는 `RunContext`에 둠(B2 체크포인터 대비). 비밀번호·API 키 패턴이 `DB_PASSWORD`처럼 접두어 붙은 이름을 놓치던 문제를 테스트로 발견해 고침
 - [x] **A5 출력 검증·렌더링·평가 실행** — 출력 검증(근거 실재, 재생성 1회), 렌더러(docs/output_example.md 형식), `src/cli.py`, `evaluation/run_eval.py` 최소판(실행·통과 판정·실행 기록 저장).
   - 확인 **(실제 LLM)**: `run_eval.py --cases 3,4,10`이 세 건을 끝까지 돌려 케이스별 통과/실패, 근거 확인 비율, 응답 시간을 출력한다.
-  - 기록: Haiku 4.5 실제 실행 2회 모두 **3/3 통과**, 근거 확인 비율 1.0, 평균 응답 12.9~14.6초. CLI 단독 실행(03번) 약 20초. 렌더러는 `src/render.py`(사용자 결정)로 분리하고 기준 화면과 구조 비교 테스트 3건 추가. 노드 순서를 "출력 검증 → 종합"으로 정함(요약이 제거된 지적을 언급하지 않게). `ruff format`으로 코드 포매팅 통일. 테스트 26건 통과, ruff 0건
+  - 기록: Haiku 4.5 실제 실행 2회 모두 **3/3 통과**, 근거 확인 비율 1.0, 평균 응답 12.9–14.6초. CLI 단독 실행(03번) 약 20초. 렌더러는 `src/render.py`(사용자 결정)로 분리하고 기준 화면과 구조 비교 테스트 3건 추가. 노드 순서를 "출력 검증 → 종합"으로 정함(요약이 제거된 지적을 언급하지 않게). `ruff format`으로 코드 포매팅 통일. 테스트 26건 통과, ruff 0건
 - [ ] **A6 관문 push** (최소 경로 완료 후) — README에 제안 요약과 실행 방법 몇 줄, 별도 저장소 `mini-pjt_{본인이름}`에 push.
   - 확인: 새로 clone한 폴더에서 설치 후 A5 명령이 같은 결과를 낸다.
 
 ## 2부 · 나머지 붙이기와 평가
 
-- [x] **B1 나머지 평가 diff 17개** — CSV note의 diff 메모대로 작성(교육용 더미). 14번은 `.py` 정확히 300줄(대부분 ruff 위반 없는 단순 코드, 의도한 이슈 1~2개), 12번은 Java만.
+- [x] **B1 나머지 평가 diff 17개** — CSV note의 diff 메모대로 작성(교육용 더미). 14번은 `.py` 정확히 300줄(대부분 ruff 위반 없는 단순 코드, 의도한 이슈 1–2개), 12번은 Java만.
   - 확인: traits에 적은 파일·줄 번호가 `diff_parser`로 뽑은 변경 후 줄과 일치하고, 14번은 정확히 300줄, 9·11번은 ruff 위반 0건이다.
 - [x] **B2 미들웨어·HITL·가드레일 테스트** — `before_model` 마스킹 미들웨어와 `ModelCallLimitMiddleware`, 체크포인터 + `interrupt` HITL, `--batch`, `github_post_comment` dry-run과 허용 목록, `tests/` 2건.
   - 확인: `pytest tests/`에서 가드레일 테스트 2건([tests/README.md](tests/README.md))이 통과한다.
@@ -45,10 +45,10 @@
   - 확인 **(실제 LLM)**: 리포트에 통과 수(카테고리별 포함), 근거 확인 비율, 응답 시간, 실패 케이스별 원인이 있다.
 - [x] **B4 개선** — 1차 실패 케이스 기준으로 프롬프트·검색 개선, 관련 케이스만 `--cases`로 다시 확인.
   - 확인: 고친 케이스가 `--cases` 실행에서 통과하고, 시도·결과가 round2 리포트 초안에 기록된다.
-- [x] **B5 2차 평가와 RAGAS** (남은 순서 1~3: 준비 → 2차 평가 → RAGAS) — 준비: 실행 기록에 RAGAS reference용 청크 원문 저장, `evaluation/run_ragas.py` 작성, **추가 세트 21·22번 diff 작성**(ruff 위반 0건, 교육용 더미), **근거-지적 일치율 계산 추가**(코드, LLM 없음), `run_eval.py`에서 본 세트(1~20)와 추가 세트(21·22)를 나눠 집계하고 forbidden "PEP8-* 근거를 단 style 지적"을 코드로 판정 → 본 세트 20건 × 1회 + 추가 세트 2건 → `evaluation/round2_report.md`, RAGAS 4개.
+- [x] **B5 2차 평가와 RAGAS** (남은 순서 1–3: 준비 → 2차 평가 → RAGAS) — 준비: 실행 기록에 RAGAS reference용 청크 원문 저장, `evaluation/run_ragas.py` 작성, **추가 세트 21·22번 diff 작성**(ruff 위반 0건, 교육용 더미), **근거-지적 일치율 계산 추가**(코드, LLM 없음), `run_eval.py`에서 본 세트(1–20)와 추가 세트(21·22)를 나눠 집계하고 forbidden "PEP8-* 근거를 단 style 지적"을 코드로 판정 → 본 세트 20건 × 1회 + 추가 세트 2건 → `evaluation/round2_report.md`, RAGAS 4개.
   - 확인 **(실제 LLM)**: 리포트에 1차 대비 개선폭, guardrail 3/3 여부, RAGAS 값이 있다. `faithfulness`·`answer_relevancy`를 먼저 계산하고, context 2개는 대상 건수와 값 또는 "미측정 + 사유"가 있다. **전체 실행 시간**(20건, 동시 실행 2개)을 재서 1차(4분 31초, 동시 실행 5개)와 나란히 적는다.
   - 기록: 2차 **본 세트 20/20**(1차 9/20, 정정·재채점 15/20), 추가 세트 2/2(리뷰어가 함정에 걸리지 않음), 실행 오류 0건. 전체 실행 시간 2분 55초(22건, 동시 실행 2개). 근거 확인 비율 1.0, 근거-지적 일치율 1.0(8/8), C2 제거 0건. RAGAS faithfulness 0.729(19건, contexts = 검색 청크 + diff hunk + ruff 출력, 코퍼스만이면 0.466) · answer_relevancy 0.264(10건), context_precision 0.711 · context_recall 1.000(각 9건). 4번 1건 실행으로 일치율이 0이 아닌 값으로 집계됨을 먼저 확인
-- [ ] **B6 README와 시연 리허설** (남은 순서 4~5) — README §4-5 템플릿 전 절, 인젝션 패턴 목록과 한계, 시연(docs/plan.md 2절).
+- [ ] **B6 README와 시연 리허설** (남은 순서 4–5) — README §4-5 템플릿 전 절, 인젝션 패턴 목록과 한계, 시연(docs/plan.md 2절).
   - 확인: 템플릿의 모든 제목이 있고 빈 절이 없으며, 시연 3단계를 막힘 없이 끝까지 진행한다. 제출 커밋 첫 줄은 `[제출] MiniPJT`.
 
 ## 3부 · 시연용 로컬 GUI (필수 작업 B5·B6이 끝난 뒤에만, 과제 평가 전에 멈춤 — 밀리면 G2 → G1 순으로 포기)
@@ -102,12 +102,19 @@ GUI 규칙은 [CLAUDE.md](CLAUDE.md) 6번 "GUI"를 따릅니다. 에이전트·C
 - [ ] **D5 다음 버전 평가** (커밋 `00807f1`) — B 완료, **A 보류**(Haiku 일일 토큰 한도, `00807f1` worktree로 재실행 예정 — 절차는 round3_report.md 1절).
   - [x] B: gpt-oss 22건 — 본 세트 17/20(실패 4·9·10), 추가 1/2(실패 22), 실행 오류 0, structured none 2/51(JSON 글 응답). 커밋 재리뷰 5건(day07·day05·day03·day06 500·`cd65c0f` 409)과 토큰(500줄은 추정치). 리포트 `evaluation/round3_report.md`.
   - [x] README를 round3 기준으로 갱신(2차 값은 비교용으로 나란히, 리뷰 모델 표시).
-  - [ ] A: Haiku — **worktree `../miniPJT-round3` (커밋 `00807f1`) 유지 중, (A) 미완료, worktree 코드 수정 금지.**
+  - [ ] A: Haiku (**우선순위 낮춤** — 리뷰 모델을 Sonnet으로 확정해 Haiku 전체 결과는 필요 없음) — **worktree `../miniPJT-round3` (커밋 `00807f1`) 유지 중, (A) 미완료, worktree 코드 수정 금지.**
     - 완료: 핵심 7건(`round3-haiku`, 6/7) + 나머지 중 1·5·6·7·8·10·12(`round3-rest-haiku`). 9번은 일일 토큰 한도로 실행 오류, 11·13·16·18·20·21·22 미실행.
-    - 한도가 풀리면 9·11·13·16·18·20·21·22만 **같은 결과 폴더에 이어서** 실행: worktree에서 먼저 `cp evaluation/runs/round3-rest-haiku/run_meta.json evaluation/runs/round3-rest-haiku/run_meta_part1.json`(시작 때 run_meta.json을 덮어쓰므로) 뒤 `../../.venv/Scripts/python.exe evaluation/run_eval.py --review-model haiku --cases 9,11,13,16,18,20,21,22 --run-id round3-rest`. 실행 전에 main의 `.env`를 worktree로 다시 복사.
-    - run_meta에 기록: 실행이 두 번(14:59~15:2x, 재개 시점)에 나뉘었고 그 사이 AWS 키가 바뀜(1차는 이전 키, 2차는 새 키) — 리뷰 모델(Haiku)·코드(`00807f1`)·판정기(Nova Pro, us-east-1)는 같음.
+    - 한도가 풀리면 **9·22번만** 돌려 B·C 실패가 코드 원인인지 확인하고 worktree를 정리합니다(나머지 11·13·16·18·20·21은 돌리지 않음): worktree에서 먼저 `cp evaluation/runs/round3-rest-haiku/run_meta.json evaluation/runs/round3-rest-haiku/run_meta_part1.json`(시작 때 run_meta.json을 덮어쓰므로) 뒤 `../../.venv/Scripts/python.exe evaluation/run_eval.py --review-model haiku --cases 9,22 --run-id round3-rest`. 실행 전에 main의 `.env`를 worktree로 다시 복사.
+    - run_meta에 기록: 실행이 두 번(14:59–15:2x, 재개 시점)에 나뉘었고 그 사이 AWS 키가 바뀜(1차는 이전 키, 2차는 새 키) — 리뷰 모델(Haiku)·코드(`00807f1`)·판정기(Nova Pro, us-east-1)는 같음.
     - 끝나면 결과를 main `evaluation/runs/`로 복사하고 round3_report.md 1·6절 갱신, `git worktree remove --force ../miniPJT-round3`.
     - 6번(A 실패)은 판단이 어려우면 한도가 풀린 뒤 Haiku로 1회 더(별도 실행 ID).
+- [x] **리뷰 모델 Sonnet 4.6 확정 (사용자 결정, 2026-11-12)** — `us.anthropic.claude-sonnet-4-6`, `us-west-1`. **모든 역할(supervisor·리뷰어 2종·종합·고치는 방법 재생성)이 Sonnet**, 역할별 모델 프리셋은 만들지 않음. `--review-model haiku|gpt-oss`는 비교 실행용으로만 남김.
+  - 이유(round3): Haiku는 계정 일일 토큰 한도로 평가를 끝까지 못 돌림(1차·3차 A 모두 중단). gpt-oss는 결과 도구를 건너뛰거나 JSON·이름표 글로 답해 structured none·종합 실패가 생김(평가 10번). Sonnet은 결과 수집이 가장 안정적(none 0/41)이고 bug를 가장 많이 찾음. 대신 오탐(9·17·22번, 1.x API 착각)과 토큰(케이스당 입력 B의 약 2.9배)이 단점 → 다음 목표는 Sonnet 오탐 줄이기.
+- [x] **round4 준비 — Sonnet 오탐 줄이기** (코드 반영 완료, 평가는 사용자 판단 후)
+  - API 존재 주장 검증(출력 검증 ⑥, `guardrails.verify_api_claims`): "X가 1.x에 없다·제거됐다·import 안 된다·그런 인자는 없다" 지적은 설치된 LangChain·LangGraph에서 실제 import(호출이면 시그니처의 키워드 인자까지)로 확인해, 되면 제거하고 trace `api_claim_dropped`에 대상·패키지 버전·사유. 매핑표 "제거" API는 유지. 확인: `test_api_absence_claim_is_dropped_when_it_imports`, `test_removed_api_claim_is_kept`. round3 C 기록에 적용하면 3건 제거(9번 9·39행, day06 264행), "제거" API 지적은 모두 유지.
+  - 리뷰어 프롬프트: 라이브러리 API 존재·변경은 매핑표·search_evidence로만 판단(기억 금지, 매핑표에 없으면 존재한다고 봄), ruff로 잡히는 비교·스타일(E711·E712·N8xx·I001)은 style로만.
+  - `run_eval` summary `api_claim`(제거 수·케이스별 위치).
+  - 대기: 6번 판정 좁히기 제안·Sonnet 버그 후보 확인표(round3_report.md 부록)에 대한 사용자 판단 → 그 뒤 round4 실행(22건 + 커밋 재리뷰 4건, `evaluation/round4_report.md`).
 - [x] **round3 이후 ② JSON 글 응답 파싱** — 리뷰어 답·보완 답이 JSON 글이면 파싱(`agent_text`·`finalize_text`), 모두 실패할 때만 none. 확인: `test_reviewer_json_text_is_parsed_without_extra_call`, `test_finalize_json_text_is_parsed_and_only_garbage_is_none`. 종합 노드 글 응답(10번)은 범위 밖, 결정 대기.
 - [x] **round3 이후 ③ 줄 길이 화면 간략화** — "## 참고" 두 줄, 상세는 --verbose, 건수·HITL 번호 제외, 추천 개선안 줄 길이 최대 1개, Review JSON은 그대로. 확인: `test_line_length_is_a_short_note_not_numbered_items` 외 3건, 4·14·15·17번 실제 실행(참고 줄로 판정 항목 통과, 17번은 2차 시도).
   - 기준 시점: 2차 제출은 태그 `submission-round2`(커밋 `7d2400c`), 다음 버전은 main (submission-round2 태그 이후).

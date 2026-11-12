@@ -1,4 +1,4 @@
-# 3차 자체 평가 리포트 · CiteReview (다음 버전, D1~D6 이후)
+# 3차 자체 평가 리포트 · CiteReview (다음 버전, D1–D6 이후)
 
 > 평가 규칙과 지표 정의는 [evaluation/README.md](README.md)를 따릅니다. 평가 diff는 교육용 더미 데이터입니다. 2차(제출 기준, 태그 `submission-round2`) 결과는 [round2_report.md](round2_report.md)에 그대로 있습니다.
 >
@@ -20,8 +20,8 @@
 
 **진행 중 — 22건 중 14건 완료, 9번 실행 오류(한도), 7건 미실행.** worktree `../miniPJT-round3`(커밋 `00807f1`)에서 본체 가상환경 Python(`C:\Users\Admin\Desktop\sds-ax-practice\.venv\Scripts\python.exe`, run_meta에 기록)으로 실행했고, chroma_db는 그 폴더에서 자동 재색인했습니다.
 
-- 1차 시도(14:01~14:20, 핵심 7건): 2·3·4·14번이 `Too many tokens per day`로 끝나지 못해 중단 → 실행 오류, 실패로 세지 않음(`runs/round3-haiku-aborted-quota/`).
-- 2차 시도: **핵심 7건 완료**(14:41~14:58, `runs/round3-haiku/`), 이어서 **나머지 15건**(14:59~, `runs/round3-rest-haiku/`) 중 1·5·6·7·8·10·12번 완료 후 **9번에서 일일 한도** → 그 지점에서 중단(9번 `status: exec_error`). 11·13·16·18·20·21·22번 미실행.
+- 1차 시도(14:01–14:20, 핵심 7건): 2·3·4·14번이 `Too many tokens per day`로 끝나지 못해 중단 → 실행 오류, 실패로 세지 않음(`runs/round3-haiku-aborted-quota/`).
+- 2차 시도: **핵심 7건 완료**(14:41–14:58, `runs/round3-haiku/`), 이어서 **나머지 15건**(14:59–, `runs/round3-rest-haiku/`) 중 1·5·6·7·8·10·12번 완료 후 **9번에서 일일 한도** → 그 지점에서 중단(9번 `status: exec_error`). 11·13·16·18·20·21·22번 미실행.
 - 응답 시간은 비교에 쓰지 않습니다: 핵심 7건 평균 180초(최대 355초) — Haiku의 분당 한도에 걸린 호출을 botocore가 안에서 재시도하며 기다린 시간이 섞였습니다(앱 단계 대기 기록은 0건).
 
 ### A 결과 (완료 14건) — 2차(같은 Haiku, `7d2400c`)와 비교 = 코드 변경 효과
@@ -196,7 +196,7 @@ git worktree remove --force ../miniPJT-round3
 - **새로 찾은 버그 후보:** C는 B가 놓친 지점(빈 메시지 목록 인덱싱 day03 279행·day06 326행, 예외를 삼키는 day05 545행 등)을 짚었습니다. 사실 여부는 사람이 확인해야 합니다. B와 C가 겹친 지점은 day06 138행(예외 삼킴) 하나입니다.
 - **과잉 지적·오탐:** C의 day06 264행(`create_agent`)은 평가 9번과 같은 착각이고, day03 260행은 오탐 의심입니다. B의 day05 579행 high는 판단이 갈리는 지적이었습니다.
 - **structured none:** B는 day03 버그 리뷰어 1회, C는 0회.
-- 입력 토큰은 C가 B의 3~9배입니다. 스타일 리뷰어·supervisor·종합 모두 Sonnet 쪽 입력이 크고(평가셋 기준 style_reviewer 415,463 대 116,906), 호출 수도 많습니다.
+- 입력 토큰 비율(C ÷ B): **평가셋 케이스당 평균 약 2.9배**(39,592 ÷ 13,694). 커밋 재리뷰는 커밋마다 달라 day07 9.4배, day03 4.3배, day05 3.8배, day06 3.1배입니다(작은 diff일수록 고정 비용 비중이 커서 배수가 큼). 응답 시간 비율은 평가셋 약 1.5배(17.8초 ÷ 11.9초), 재리뷰 day07 2.1배·day03 0.86배(C가 더 빠름)·day05 2.1배·day06 1.7배. 스타일 리뷰어 입력이 특히 큽니다(평가셋 합계 415,463 대 116,906, 약 3.6배).
 
 ### "버그 리뷰어만 Sonnet, 나머지는 기존 모델(gpt-oss)" 구성 — 예상치
 
@@ -214,6 +214,56 @@ git worktree remove --force ../miniPJT-round3
 
 - 입력 토큰은 평가셋 기준 B의 약 1.6배, C의 약 절반입니다. 토큰을 가장 많이 쓰는 스타일 리뷰어를 gpt-oss로 두기 때문입니다.
 - 한계: 리뷰어 단계 시간은 supervisor·다른 리뷰어와 겹치는 부분 없이 순서대로 돈다는 가정, 모델 섞임에 따른 supervisor 응답 변화는 반영하지 못합니다. day03처럼 B 쪽 버그 리뷰어가 느렸던 경우(49.6초, none 포함)는 혼합이 더 빠르게 나옵니다.
+
+### 결정: 리뷰 모델 Sonnet 4.6 확정 (사용자 결정)
+
+round3 결과로 리뷰 모델을 **Sonnet 4.6(us-west-1)으로 확정**했습니다. 모든 역할(supervisor·리뷰어 2종·종합)이 Sonnet이고, 역할별 프리셋("버그 리뷰어만 Sonnet" 등)은 만들지 않습니다. `--review-model haiku|gpt-oss`는 비교 실행용으로만 남깁니다.
+- Haiku: 계정 일일 토큰 한도로 평가를 끝까지 돌리지 못함(A 14/22에서 중단).
+- gpt-oss: 결과 도구를 건너뛰거나 글로 답해 structured none·종합 실패가 생김(10번 확정).
+- Sonnet: 결과 수집이 가장 안정적(none 0/41)이고 bug를 가장 많이 찾지만, 오탐(9·17·22번, 1.x API 착각)이 단점 → **다음 목표는 Sonnet의 오탐 줄이기**(round4).
+
+### 부록 1 — 6번 15행 지적과 판정 좁히기 제안 (사용자 판단 대기)
+
+```
+ 12 | def loadDocs(path: str) -> list[dict]:
+ 13 |     """JSON Lines 파일에서 문서 목록을 읽는다."""
+ 14 |     docs = []
+ 15 |     for line in Path(path).read_text(encoding=ENCODING).splitlines():
+ 16 |         if line.strip():
+ 17 |             docs.append(json.loads(line))
+ 18 |     return docs
+```
+- A(Haiku) bug medium 15행: "`Path(path).read_text()`에서 파일이 없거나 읽을 수 없으면 FileNotFoundError 또는 PermissionError가 발생하지만 처리되지 않습니다." (고치는 방법: `try … except FileNotFoundError: return []`)
+- C(Sonnet) bug medium 15행: 같은 내용 + `json.loads` 실패도 처리되지 않음. (고치는 방법: `OSError`를 잡아 `RuntimeError`로 다시 던지기)
+- 이 지적은 12행 함수 이름(N802) 문제를 bug로 "분류"한 것이 아니라, 별개의 예외 처리 지적입니다.
+
+**제안 (지적이 타당하다고 판단될 때):** 금지 항목 `X로 분류`를 "traits에 적힌 이슈를 X로 분류한 경우"로 좁힙니다.
+- traits에 근거 ID(`ruff:`·`PEP8-`·`DEP-`)가 있으면: 위치 ±3줄 **그리고** 그 지적의 근거 ID가 traits의 근거 ID와 겹칠 때만 걸림.
+- traits에 근거 ID가 없으면(1·7·8번처럼 코드 위치 근거만): 지금처럼 위치 ±3줄만.
+
+기존 실행 기록 전체(2차·A·B·C)에 적용해 본 결과, 바뀌는 것은 **6번의 A·C(걸림 → 통과)뿐**입니다. 17번 C(22행 `== None`을 E711 근거로 bug 지적)는 여전히 걸리고, 1·4·5·7·8번은 네 조건 모두 변화가 없습니다. 판정 코드(`run_eval.py`)와 CSV는 바꾸지 않았습니다.
+
+### 부록 2 — Sonnet(C) 커밋 재리뷰 bug·security 지적 확인표 (최종 판단은 사용자)
+
+"내 판단"은 코드를 읽고 내린 1차 의견입니다. 실행해서 확인한 것은 아닙니다.
+
+| 커밋 | 위치 | 지적 | 근거 | 코드 발췌 | 내 판단 | 이유 |
+|---|---|---|---|---|---|---|
+| day07 `23402b2` | submission.py:113 · bug medium | `status`·`detail`이 일부 경로에서 할당되지 않음 | 코드 위치 150·153행 | `if status == PASS:` | **오탐** | 지적 본문이 스스로 "모든 경로에서 할당되므로 실제 버그 없음"이라고 결론. 뒤에 붙은 None id 문제는 94행 지적과 중복 |
+| day07 `23402b2` | submission.py:94 · bug low | `item.get("id")`가 None이면 `compare_eval`의 `sorted()`에서 TypeError | 코드 위치 94·153행 | `qid = item.get("id")` / `fixed = sorted(before_failed - after_failed)` | **타당 (낮음)** | `sorted()`가 None과 문자열이 섞인 집합을 정렬하면 실제로 TypeError. 다만 docstring이 문항에 `id`가 있다고 정한 입력 계약을 어길 때만 발생 |
+| day03 `b24f206` | submission.py:260 · bug high | `MAX_TOOL_CALLS`가 306행에 정의돼 `build_agent` 호출 시 NameError | 코드 위치 260·306행 | `remaining = max(MAX_TOOL_CALLS - _count_tool_calls(...), 0)` | **오탐** | 모듈 수준 상수라 import가 끝나면 정의됨. `build_agent()`는 모듈 안에서 호출되지 않고 외부에서 import 후 호출 |
+| day03 `b24f206` | submission.py:269 · bug medium | `finalize`에서 도구가 바인딩된 `llm_with_tools`를 씀 | 코드 위치 269행 | `response = llm_with_tools.invoke(messages)` | **과잉 (개선 제안)** | 바로 아래 270–274행에서 tool_call을 버리고 텍스트만 남기도록 처리. 동작은 맞고, 도구 없는 모델이 더 명확하다는 설계 제안이라 bug가 아님 |
+| day03 `b24f206` | submission.py:279 · bug medium | `state["messages"]`가 비면 `[-1]`에서 IndexError | 코드 위치 279행 | `last = state["messages"][-1]` | **오탐에 가까움** | `route_after_agent`는 agent 노드가 메시지를 추가한 뒤에만 호출되고 초기 상태에도 사용자 메시지가 있음. 빈 목록이 되는 경로가 보이지 않음 |
+| day03 `b24f206` | submission.py:175 · bug medium | 지표에 `* 100`을 해 단위가 틀릴 수 있음 | 코드 위치 175행 | `f"- 5분 오류율: {m['error_rate_5m'] * 100:.1f}%\n"` | **오탐** | 픽스처 `ops_fixtures.json`의 값이 `0.124`·`0.42` 같은 비율이라 `* 100`이 맞음. 근거 없는 가정 |
+| day05 `13ee4ae` | submission.py:545 · bug medium | `_dangerous_args`가 예외를 삼키고 None(안전)을 돌려 보안 검사가 조용히 통과 | 코드 위치 545행 | `except Exception:  # noqa: BLE001  인자 검사가 실패해도 판정은 반드시 돌려줍니다` / `return None` | **타당 (판단 필요)** | 보안 게이트가 실패 시 "안전"으로 열리는(fail-open) 구조는 실제 위험. 주석으로 의도를 밝혔지만 의도가 "판정을 돌려주기"라면 None 대신 차단 쪽이 안전 |
+| day05 `13ee4ae` | submission.py:567 · bug medium | `RISK_LEVELS.get(raw)` 조회 순서와 빈 이름 처리 | 코드 위치 564·567행 | `level = RISK_LEVELS.get(raw) or RISK_LEVELS.get(name)` | **오탐** | 지적 본문이 스스로 "실제로는 동작한다", "이 자체는 차단"이라고 결론. 남은 것은 차단 사유 문구가 불친절하다는 정도 |
+| day05 `13ee4ae` | submission.py:581 · bug medium | read 도구는 인자 검사를 건너뜀 | 코드 위치 572·581행 | `danger = _dangerous_args(args)` (read는 그 앞 572행에서 반환) | **설계 선택 (판단 필요)** | 570–571행 주석이 "조회는 상태를 바꾸지 않으므로 과차단 방지"라고 의도를 밝힘. read 도구가 인자를 셸에 넘기는 구현이면 위험. B(gpt-oss)도 같은 지점을 high로 지적 |
+| day06 `b465f63` | submission.py:264 · bug high | `from langchain.agents import create_agent`는 1.x에 없음 | 코드 위치 264행, `DEP-create_react_agent` | `from langchain.agents import create_agent` | **오탐** | 1.x의 정식 API(설치본에서 import 확인). round4의 API 존재 주장 검증이 제거하는 지적 |
+| day06 `b465f63` | submission.py:326 · bug medium | `result["messages"]`가 비면 IndexError, `fail` 미정의로 NameError | 코드 위치 326행 | `output = _text_of(result["messages"][-1])` (try 안) | **오탐** | try 블록 안이라 IndexError는 327행 except가 잡고, 거기서 `fail`을 설정함. NameError 경로 없음 |
+| day06 `b465f63` | submission.py:327 · bug medium | 예외 시 `output=""`로 넘겨 오류 맥락 소실 | 코드 위치 327행 | `except Exception as exc:  # noqa: BLE001` / `output = ""` / `fail = …` | **오탐** | 지적 본문 안에서 `output`이 빈 문자열이면 `keep=False`가 되어 `fail`이 사유에 포함된다고 스스로 설명. 누락되는 경로가 없음 |
+| day06 `b465f63` | submission.py:138 · bug medium | `route_question`이 모든 예외를 삼키고 빈 목록 반환 | 코드 위치 138행 | `except Exception:  # noqa: BLE001  라우터가 죽으면 뒤의 Agent 셋이 실행조차 못 합니다` | **과잉 (설계 의도 명시)** | 주석으로 의도(라우터 실패가 전체를 멈추지 않게)를 밝힘. 로그를 남기라는 정도의 개선 제안이 적절(low). B도 high로 지적 |
+
+1차 의견 집계: 13건 중 **타당 2**(day07 94, day05 545 — 둘 다 조건부), **판단 필요 1**(day05 581), **과잉 2**(day03 269, day06 138), **오탐 8**(본문이 스스로 버그 없다고 결론 내린 3건 포함).
 
 ## 4. 커밋 재리뷰와 토큰 (D4-4) — gpt-oss, CLI `--review-model gpt-oss --batch`
 
@@ -243,13 +293,13 @@ diff는 GUI와 같은 방식(`git show -U9999`, 변경 파일 전체가 문맥�
 | 세 점 선형 (+ `cd65c0f` 409줄 실측) | 약 82,000 | 기울기 152토큰/줄 |
 | 다섯 점 선형 (재리뷰 전부) | 약 76,000 | 기울기 100토큰/줄 |
 
-- **실측 500줄 diff는 없습니다.** 교육 저장소에서 340~500줄 사이 커밋은 `cd65c0f`(409줄) 하나라 이것을 실측 지점으로 더했습니다. 500줄 값은 **추정치**입니다.
-- 입력 토큰은 변경 줄 수보다 **diff 전체 줄 수(문맥 포함)**에 더 가깝게 움직입니다: day05는 변경 123줄인데 diff가 614줄이라 61,165토큰, day03은 변경 290줄·diff 512줄로 46,162토큰. GUI·`-U9999` diff는 변경 파일 전체를 문맥으로 넣기 때문입니다. 그래서 "500줄이면 몇 토큰"은 파일 크기에 따라 크게 달라지며, 위 추정은 이 커밋들 정도의 파일 크기(diff 500~700줄)를 가정한 값입니다.
-- 출력 토큰은 2,000~4,300으로 변경 줄 수와 관계가 뚜렷하지 않습니다(리뷰어의 추론 길이에 좌우).
+- **실측 500줄 diff는 없습니다.** 교육 저장소에서 340–500줄 사이 커밋은 `cd65c0f`(409줄) 하나라 이것을 실측 지점으로 더했습니다. 500줄 값은 **추정치**입니다.
+- 입력 토큰은 변경 줄 수보다 **diff 전체 줄 수(문맥 포함)**에 더 가깝게 움직입니다: day05는 변경 123줄인데 diff가 614줄이라 61,165토큰, day03은 변경 290줄·diff 512줄로 46,162토큰. GUI·`-U9999` diff는 변경 파일 전체를 문맥으로 넣기 때문입니다. 그래서 "500줄이면 몇 토큰"은 파일 크기에 따라 크게 달라지며, 위 추정은 이 커밋들 정도의 파일 크기(diff 500–700줄)를 가정한 값입니다.
+- 출력 토큰은 2,000–4,300으로 변경 줄 수와 관계가 뚜렷하지 않습니다(리뷰어의 추론 길이에 좌우).
 
 ## 5. 남은 한계
 
-- **케이스당 1회 실행입니다.** 모델 출력은 실행마다 달라질 수 있어(10번 오탐 4회 중 1회, day04 none 2회 중 1회), 1~2건 차이는 실행 간 변동과 구분할 수 없습니다. 6번 A 실패도 이 이유로 아직 확정하지 않았습니다.
+- **케이스당 1회 실행입니다.** 모델 출력은 실행마다 달라질 수 있어(10번 오탐 4회 중 1회, day04 none 2회 중 1회), 1–2건 차이는 실행 간 변동과 구분할 수 없습니다. 6번 A 실패도 이 이유로 아직 확정하지 않았습니다.
 - **A가 끝나지 않았습니다**(14/22 완료). 9·22번의 Haiku 결과가 없어 B·C 실패의 원인을 모델로 확정하지 못했습니다.
 - B·C는 모델과 코드가 함께 바뀐 비교이고, 코드만의 효과는 A로 봅니다. A의 응답 시간은 Haiku 분당 한도 재시도가 섞여 비교에 쓰지 않습니다.
 - 판정 LLM(Nova Pro) 성향이 문장형 항목(9·22번 "문제가 없다는 안내")에 섞이고, `bug로 분류` 판정은 traits 위치 ±3줄 규칙이라 별개의 지적도 걸릴 수 있습니다(6번).
@@ -262,7 +312,7 @@ diff는 GUI와 같은 방식(`git show -U9999`, 변경 파일 전체가 문맥�
 2. **4번 실패는 코드 원인으로 확정**(같은 Haiku로 2차 통과 → A 실패). D4-2로 리뷰어가 PEP 8 문서를 찾을 필요가 없어졌고 CSV `expected_tools`의 `search_evidence`와 맞지 않습니다. `search_evidence` 요구를 뺀 수정 기준으로는 네 조건 모두 통과. CSV를 고칠지는 사람 판단으로 남깁니다(이 리포트에서는 고치지 않음).
 3. **10번 B 실패는 gpt-oss 탓으로 확정**(Haiku·Sonnet 모두 통과). 원인은 종합 노드의 글 응답이고, 대비를 넣을지는 별도 결정입니다.
 4. **structured none은 gpt-oss에서만 나왔습니다**(B 51회 중 2회, C 0/41, A 0/26). 원인은 결과를 JSON 글로 답하는 습관이고 크기와는 무관해 보입니다 → round3 이후 ②로 파싱하게 고쳤습니다.
-5. **Sonnet(C)은 통과 수는 B와 같고(17/20) 실패한 케이스가 다릅니다.** 결과 수집은 가장 안정적이고 bug를 가장 많이 찾지만(공통 13건 20건 대 B 11건), 과잉 지적·분류 넘치는 지적·1.x API 착각이 있고, 입력 토큰은 B의 약 3배, 응답은 약 1.5배입니다. **버그 리뷰어만 Sonnet**으로 두면 입력 토큰은 B의 약 1.6배, 응답은 약 2.4초 늘 것으로 추정됩니다.
+5. **Sonnet(C)은 통과 수는 B와 같고(17/20) 실패한 케이스가 다릅니다.** 결과 수집은 가장 안정적이고 bug를 가장 많이 찾지만(공통 13건 20건 대 B 11건), 과잉 지적·분류 넘치는 지적·1.x API 착각이 있고, 입력 토큰은 평가셋 케이스당 B의 약 2.9배, 응답은 약 1.5배입니다(4절 재리뷰는 3.1–9.4배). **버그 리뷰어만 Sonnet**으로 두면 입력 토큰은 B의 약 1.6배, 응답은 약 2.4초 늘 것으로 추정됩니다.
 
 ### 대기 중 (A 이어 실행 후 갱신)
 6. **9·22번이 모델 탓인지:** Haiku 결과가 나오면 확정합니다(2차 Haiku는 둘 다 통과).
@@ -271,7 +321,7 @@ diff는 GUI와 같은 방식(`git show -U9999`, 변경 파일 전체가 문맥�
 
 ## 7. round3 이후 개선 (커밋 00807f1 이후, round3 결과와 섞지 않음)
 
-위 1~6절은 커밋 `00807f1` 결과입니다. 아래는 그 뒤 main에서 고친 내용과, 고친 코드로 따로 돌린 확인 실행입니다(실행 기록 `runs/post3-e501-gpt-oss/`, `runs/post3-e501-17retry-gpt-oss/`). 통과율 표(2절)에는 넣지 않습니다.
+위 1–6절은 커밋 `00807f1` 결과입니다. 아래는 그 뒤 main에서 고친 내용과, 고친 코드로 따로 돌린 확인 실행입니다(실행 기록 `runs/post3-e501-gpt-oss/`, `runs/post3-e501-17retry-gpt-oss/`). 통과율 표(2절)에는 넣지 않습니다.
 
 ### ② 리뷰어 결과의 JSON 글 응답 파싱
 - 리뷰어가 결과 도구 대신 JSON을 글로 답하면 그 글을 `ReviewerFindings`로 파싱합니다(`reviewers.parse_findings_text`, 모델 호출 없음, `structured: agent_text`). 아니면 보완 단계로 다시 묻고, 그 답이 도구면 `finalize`, JSON 글이면 파싱해 `finalize_text`, **모두 실패할 때만 `none`**.

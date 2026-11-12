@@ -655,6 +655,19 @@ def syntax_summary(results: list[tuple[dict, dict, dict]]) -> dict:
     }
 
 
+def api_claim_summary(results: list[tuple[dict, dict, dict]]) -> dict:
+    """출력 검증 ⑥(API 존재 주장 검증)이 제거한 지적 수와 케이스별 위치·대상."""
+    by_case = {}
+    for c, o, _ in results:
+        ev = _output_event(o["trace"]) or {}
+        rows = ev.get("api_claim_dropped") or []
+        if rows:
+            by_case[c["id"]] = [
+                {"line": r["line"], "targets": r["targets"][:2]} for r in rows
+            ]
+    return {"dropped": sum(len(v) for v in by_case.values()), "by_case": by_case}
+
+
 def evidence_counts(trace: list[dict]) -> tuple[int, int]:
     """(출력 검증 통과 지적 수, 출력 검증 전 지적 수)."""
     ev = _output_event(trace)
@@ -785,6 +798,8 @@ def set_summary(results: list[tuple[dict, dict, dict]]) -> dict:
         "usage": usage_summary([o["trace"] for _, o, _ in results]),
         # 출력 검증 ④: 파싱 실패 주장 제거 수와 그 제거 덕분에 통과한 케이스
         "syntax": syntax_summary(results),
+        # 출력 검증 ⑥: import되는데 없다고 한 API 지적 제거 수 (round4부터)
+        "api_claim": api_claim_summary(results),
     }
 
 

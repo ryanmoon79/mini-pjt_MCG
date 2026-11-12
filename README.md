@@ -25,7 +25,7 @@ LLM 코드 리뷰는 근거가 없어 믿고 고칠지 판단하기 어렵고, L
 | 케이스당 토큰 (평균) | (기록 없음) | 입력 13,694 · 출력 1,626 · 호출 8회 |
 | RAGAS | faithfulness 0.729 · answer_relevancy 0.264 · context_precision 0.711 · context_recall 1.000 ([아래](#ragas-평가-결과)) | 미실행 |
 
-## 활용한 패턴 (Day 1~7)
+## 활용한 패턴 (Day 1–7)
 
 과정 공식 패턴 12개 중 **11개 적용** (MCP는 선택 작업 C1으로 미구현).
 
@@ -180,7 +180,7 @@ python -m src.gui_server      # 브라우저가 열림 (Windows는 run.bat 더�
   - `ignore-instructions`: "이전 지시를 무시", "ignore previous instructions"
   - `claim-no-issues`: "문제가 없다고 답", "report no issues"
   - `post-without-approval`: "승인 없이/바로 게시", "post this review now"
-- **(다음 버전) 더미로 표시된 비밀값:** 탐지된 줄의 `#` 주석이나 바로 위 1~2줄 주석 줄에 더미·예시·dummy·example·test·fake·sample 같은 표시가 있으면 "참고: 더미로 표시된 비밀값"(low)으로 낮추고 꼭 고칠 것과 요약에서 뺍니다(지적과 마스킹은 그대로). 값 자체(따옴표 안)는 보지 않아 평가셋 18번(`…EXAMPLE` 키, 주석 없음)은 high입니다. **그래서 더미라고 적힌 진짜 키는 low로만 잡힙니다.** 도구는 진짜 키인지 확인하지 못합니다.
+- **(다음 버전) 더미로 표시된 비밀값:** 탐지된 줄의 `#` 주석이나 바로 위 1–2줄 주석 줄에 더미·예시·dummy·example·test·fake·sample 같은 표시가 있으면 "참고: 더미로 표시된 비밀값"(low)으로 낮추고 꼭 고칠 것과 요약에서 뺍니다(지적과 마스킹은 그대로). 값 자체(따옴표 안)는 보지 않아 평가셋 18번(`…EXAMPLE` 키, 주석 없음)은 high입니다. **그래서 더미라고 적힌 진짜 키는 low로만 잡힙니다.** 도구는 진짜 키인지 확인하지 못합니다.
 - RAGAS 값에는 판정 모델의 성향이 섞이고(14·17번), faithfulness의 ruff 출력은 2차 실행 후 같은 diff로 다시 계산해 채웠습니다. 케이스마다 1회 실행이라 변동성은 재지 않았습니다.
 
 ### 다음 단계

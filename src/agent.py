@@ -50,6 +50,7 @@ from src.guardrails import (
     removed_import_patterns,
     strip_classic_sentences,
     strip_classic_sentences_keep_code,
+    verify_api_claims,
     verify_syntax_claims,
 )
 from src.observability import ROLE_KEY, TraceRecorder, record_usage
@@ -647,6 +648,9 @@ def build_graph(ctx: RunContext, checkpointer=None):
         kept, syntax_dropped, syntax_kept = verify_syntax_claims(
             kept, ctx.check.py_files
         )
+        # ⑥ API가 없다·제거됐다는 지적은 설치된 패키지에서 실제 import로 확인해,
+        # import되면 제거 (매핑표의 "제거" API는 유지). C2처럼 따로 보고.
+        kept, api_claim_dropped = verify_api_claims(kept, ctx.check.py_files)
         # 입력 가드레일의 security 지적은 가드레일이 직접 만든 것이라 그대로 둠
         kept = [_fix_forbidden_suggestion(f) for f in kept]
         # ③ 줄 길이(E501)는 리뷰어 지적 대신 ruff 결과로 코드가 만듦 (숫자도 ruff 값)
@@ -691,6 +695,8 @@ def build_graph(ctx: RunContext, checkpointer=None):
             # 검증 불가·실제 파싱 실패로 유지한 지적
             syntax_dropped=syntax_dropped,
             syntax_kept=syntax_kept,
+            # ⑥ API 존재 주장 검증: import되는데 없다고 한 지적(대상·패키지 버전·전체)
+            api_claim_dropped=api_claim_dropped,
             line_length_by_code=len(long_lines),  # ruff로 코드가 만든 줄 길이 지적
             reviewer_line_length_dropped=len(replaced),  # 리뷰어가 낸 줄 길이 지적
         )

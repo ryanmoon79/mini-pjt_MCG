@@ -30,7 +30,7 @@
 |---|---|
 | 언어 | Python 3.12 이상 |
 | LangChain / LangGraph | **1.x 기준**. 교육 환경 설치본: `langchain 1.4.7`, `langchain-core 1.7.3`, `langgraph 1.2.19`. 메이저 1.x 범위로 고정 (`langchain>=1.4,<2`, `langgraph>=1.2,<2`) |
-| LLM (리뷰) | **기본값** `us.anthropic.claude-sonnet-4-6` (Amazon Bedrock, **`us-west-1`**), `ChatBedrockConverse`, temperature 0. **AGENTS.md 고정값(Sonnet 4.5) → Haiku 4.5(1·2차 평가) → gpt-oss-120b(다음 버전) → Sonnet 4.6(현재), 모두 사용자 결정** — 앞의 모델들이 차례로 계정 일일 토큰 한도에 걸려 개발·평가가 막혔기 때문 (README 회고에 기록). 고를 수 있는 모델은 `config.REVIEW_MODELS`(`sonnet` 기본 · `gpt-oss` · `haiku`), CLI·`run_eval.py`의 `--review-model`. **리전은 역할별 코드 상수**: 리뷰 모델은 `config.REVIEW_MODEL_REGIONS`(Sonnet 4.6만 `us-west-1`, 없는 모델은 `AWS_REGION`=`us-east-1`), 임베딩 `EMBEDDING_REGION`=`us-east-1`, 판정 `JUDGE_REGION`=`us-east-1`(`run_ragas.py`에도 같은 값, 테스트로 확인). 모든 Bedrock 호출이 `region_name`을 직접 넘기므로 **`.env`의 리전 변수(`AWS_DEFAULT_REGION` 등)는 읽지 않고, `.env`에 리전을 넣을 필요가 없습니다.** **모델별 호출 권한은 `.env`의 AWS 키에 따라 다릅니다**(Sonnet 4.6은 바꾼 새 키에서만 허용 — worktree에 `.env`를 복사했다면 키를 바꾼 뒤 다시 복사) |
+| LLM (리뷰) | **`us.anthropic.claude-sonnet-4-6` (Amazon Bedrock, **`us-west-1`**)로 확정 (사용자 결정, round3 결과 근거 — `evaluation/round3_report.md`)**, `ChatBedrockConverse`, temperature 0. **모든 역할(supervisor·리뷰어 2종·종합·고치는 방법 재생성)이 같은 Sonnet이고 역할별 모델 프리셋은 두지 않습니다.** `--review-model haiku|gpt-oss`는 비교 실행용으로만 남깁니다. **AGENTS.md 고정값(Sonnet 4.5) → Haiku 4.5(1·2차 평가) → gpt-oss-120b(다음 버전) → Sonnet 4.6(현재), 모두 사용자 결정** — 앞의 모델들이 차례로 계정 일일 토큰 한도에 걸려 개발·평가가 막혔기 때문 (README 회고에 기록). 고를 수 있는 모델은 `config.REVIEW_MODELS`(`sonnet` 기본 · `gpt-oss` · `haiku`), CLI·`run_eval.py`의 `--review-model`. **리전은 역할별 코드 상수**: 리뷰 모델은 `config.REVIEW_MODEL_REGIONS`(Sonnet 4.6만 `us-west-1`, 없는 모델은 `AWS_REGION`=`us-east-1`), 임베딩 `EMBEDDING_REGION`=`us-east-1`, 판정 `JUDGE_REGION`=`us-east-1`(`run_ragas.py`에도 같은 값, 테스트로 확인). 모든 Bedrock 호출이 `region_name`을 직접 넘기므로 **`.env`의 리전 변수(`AWS_DEFAULT_REGION` 등)는 읽지 않고, `.env`에 리전을 넣을 필요가 없습니다.** **모델별 호출 권한은 `.env`의 AWS 키에 따라 다릅니다**(Sonnet 4.6은 바꾼 새 키에서만 허용 — worktree에 `.env`를 복사했다면 키를 바꾼 뒤 다시 복사) |
 | gpt-oss 대응 (선택 모델) | gpt-oss를 고르면 `supports_tool_choice_values=("auto","any","tool")`을 직접 지정합니다. 답에 추론 블록이 섞이고(마스킹 미들웨어가 그 text도 가림), `tool_choice`를 받아도 강제하지 않아 결과 도구를 건너뛰거나 JSON 글로 답할 수 있음 → 리뷰어 보완 단계(`reviewers._finalize`, JSON 글 파싱), 종합 노드는 빈 구조화 출력을 형식 오류로 처리 |
 | LLM (3차 평가 비교) | 같은 코드(커밋 `00807f1`)로 리뷰 모델만 바꿔 비교(`evaluation/round3_report.md`), 판정은 모두 Nova Pro. **조건 A** Haiku 4.5(2차와 같은 모델) · **조건 B** gpt-oss · **조건 C** Sonnet 4.6(us-west-1). `00807f1` 코드에는 Sonnet 선택지가 없어 C는 모델만 주입하는 별도 실행 스크립트로 돌렸습니다(에이전트 코드는 그대로) |
 | 임베딩 | `amazon.titan-embed-text-v2:0` (1024차원) |
@@ -132,7 +132,9 @@ mini-pjt_{본인이름}/
                    있을 때만 유지 ③ langchain_classic 권장 제거(재생성 1회 → 결정적 대체)
                    ④ 파싱 실패(SyntaxError 등)를 주장하는 지적은 변경 후 파일을 ast.parse로 검증해
                    파싱되면 제거(파일 일부만 보이면 유지·기록), ⑤ 줄 길이 지적은 ruff 결과로 코드가 만듦,
-                   입력 가드레일의 security 지적 병합 (LLM은 ③의 재생성에만)
+                   ⑥ API가 없다·제거됐다는 지적은 설치된 패키지에서 실제 import(호출이면 시그니처)로
+                   확인해 되면 제거(매핑표 "제거" API는 유지), 입력 가드레일의 security 지적 병합
+                   (LLM은 ③의 재생성에만)
 → [종합]           요약 5줄 중 2·3·4줄(보안·버그, 스타일, 범위·기준)은 코드가 만들고,
                    LCEL은 1줄(변경 내용)·5줄(할 일)·추천 개선안만 씀 (SummaryDraft 스키마 검증,
                    형식 오류 시 최대 1회 재생성 후 실패, 규칙 위반 줄은 1회 재생성 후 코드 문장으로 대체)
@@ -222,11 +224,13 @@ CiteReview 자신이 deprecated API를 쓰면 안 됩니다. 아래는 **사용 
 
 ### 근거와 가드레일
 - 근거는 세 종류만 인정합니다: **문서 청크(doc) / 도구 출력(tool) / diff 코드 위치(code)**.
+- **API 존재 주장 검증 (`guardrails.verify_api_claims`):** bug·security 지적의 설명이 "X가 1.x에 없다·존재하지 않는다·제거됐다·import 안 된다"를 주장하면, 지적 문장과 그 줄의 코드에서 LangChain·LangGraph import 대상(호출이면 그 파일이 import한 함수와 문장에 적힌 키워드 인자)을 뽑아 **설치된 패키지에서 실제로 import·시그니처 확인**합니다. 모두 확인되면 제거하고 `trace`의 `api_claim_dropped`에 대상·패키지 버전·사유를 남깁니다. deprecated_map.md에서 "제거"인 API는 import 결과와 관계없이 유지합니다. 다른 패키지 이름은 import하지 않습니다.
+- **리뷰어의 라이브러리 판단 규칙 (프롬프트):** API 존재·제거·변경은 매핑표와 `search_evidence` 결과로만 판단하고(기억 금지, 매핑표에 없으면 존재한다고 봄), ruff로 잡히는 비교·스타일(E711·E712·N8xx·I001)은 style로만 분류합니다.
 - **파싱 실패 주장 검증:** 지적 설명이 SyntaxError·IndentationError·TabError·문법·구문 오류를 주장하면 변경 후 파일을 `ast.parse`로 검증합니다(`guardrails.verify_syntax_claims`). 파싱되면 제거하고 `trace`의 `syntax_dropped`에 지적 전체와 사유를, 파일 일부만 보이거나 실제로 파싱이 안 되면 유지하고 `syntax_kept`에 사유를 남깁니다. 논리 버그 설명("들여쓰기 때문에 return이 루프 안에 있음")은 대상이 아닙니다.
 - 출력 검증은 근거가 **실제로 존재하는지 기계적으로 확인**합니다. 예: `code` 근거의 라인이 diff에 있는지, `doc` 근거가 이번 검색 결과에 있었는지, `tool` 근거가 이번 도구 출력에 있었는지. 제거 전후 지적 수를 `trace`에 남깁니다.
 - 비밀값·개인정보 마스킹은 **LLM 호출 전에** 실행하고, 마스킹 위치마다 `security` 지적(근거 유형 `tool`)을 만듭니다. 마스킹 표시는 `[MASKED:<패턴명>]` 형식(예: `[MASKED:aws-access-key]`, `[MASKED:email]`)으로 써서 원문은 숨기되 무엇이 있었는지는 리뷰어와 평가 판정 LLM이 알 수 있게 합니다. 출력과 실행 기록에도 원문을 남기지 않습니다.
   - 비밀값 패턴(`secret-scanner:`): AWS 키, 일반 API 키·토큰, 비밀번호 할당문 등
-  - 더미 표시 비밀값: 탐지된 줄의 `#` 주석(문자열 밖)이나 바로 위 1~2줄 **주석 줄**에 더미·예시·dummy·example·test·fake·sample 표시가 있으면 secret-scanner 지적을 low "참고"로 낮춥니다(`guardrails._marked_dummy`, 지적·마스킹은 유지, 꼭 고칠 것·요약 제외 `is_note`). 따옴표 안의 값은 검사하지 않습니다(18번 `…EXAMPLE` 키는 high).
+  - 더미 표시 비밀값: 탐지된 줄의 `#` 주석(문자열 밖)이나 바로 위 1–2줄 **주석 줄**에 더미·예시·dummy·example·test·fake·sample 표시가 있으면 secret-scanner 지적을 low "참고"로 낮춥니다(`guardrails._marked_dummy`, 지적·마스킹은 유지, 꼭 고칠 것·요약 제외 `is_note`). 따옴표 안의 값은 검사하지 않습니다(18번 `…EXAMPLE` 키는 high).
   - 개인정보 패턴(`pii-scanner:`): 이메일, 전화번호, 주민등록번호. 예시용으로 흔히 쓰는 주소(`user@example.com` 등)는 허용 목록으로 제외해 오탐을 줄입니다.
 - 리뷰 대상은 diff 안의 **`.py` 파일만**입니다. 다른 파일(README, `pyproject.toml`, `.yaml` 등)은 건너뛰고 출력에 목록을 안내하며, `.py` 파일이 없으면 거절합니다(Java만 있으면 "아직 지원하지 않는 언어"라고 안내).
 - 변경 한도 판정은 **`.py` 파일의 추가·삭제 줄 합계**로 합니다 (diff 헤더·문맥 줄·다른 파일 제외). 한도는 **기본 300줄, 사용자 설정으로 최대 500줄**(`config.MAX_LINES_CAP`)이며 우선순위는 CLI `--max-lines`·GUI 입력 > 저장소 `pyproject.toml [tool.citereview] max-lines` > 기본 300입니다. 평가 실행은 `run_query`에 설정을 넘기지 않으므로 항상 기본값입니다.
