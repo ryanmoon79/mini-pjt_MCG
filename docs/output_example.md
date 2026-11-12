@@ -44,15 +44,7 @@ CiteReview · data/eval_diffs/03_llmchain.diff
 
 ## 스타일 이슈
 
-3. app/chain.py:27 · low
-   줄 길이가 95칸으로 기준 88칸(CiteReview ruff.toml)을 넘습니다. 긴 줄은 읽기와 diff 비교를 어렵게 합니다.
-      26 | def build_chain(model):
-    > 27 |     prompt = ChatPromptTemplate.from_template("다음 코드를 리뷰하고 문제점을 근거와 함께 설명해 주세요: {code}")
-      28 |     return prompt | model
-   근거: PEP 8 최대 줄 길이 (PEP8-maximum-line-length), ruff E501 (ruff:E501)
-   고치는 방법: 템플릿 문자열을 괄호 안에서 두 줄로 나눕니다.
-
-4. app/chain.py:3 · low
+3. app/chain.py:3 · low
    os를 import하지만 쓰지 않습니다. 읽는 사람이 쓰이는 곳을 찾게 됩니다.
        2 |
      > 3 | import os
@@ -65,7 +57,11 @@ CiteReview · data/eval_diffs/03_llmchain.diff
 - 다른 파일에도 langchain.chains, langchain.memory import가 남아 있는지 함께 확인하세요.
 - 비밀값은 .env에서 읽고 .env는 .gitignore에 넣으세요.
 
-지적 4건 (꼭 고칠 것 2 · 다듬을 것 2) · 근거가 확인되지 않아 제외된 지적 1건 (--verbose로 확인)
+## 참고
+줄 길이 초과 1줄 (기준 88칸): app/chain.py 27 / ruff format 또는 괄호 안 줄바꿈으로 정리
+(ruff:E501, PEP8-maximum-line-length, 길이는 --verbose)
+
+지적 3건 (꼭 고칠 것 2 · 다듬을 것 1) · 근거가 확인되지 않아 제외된 지적 1건 (--verbose로 확인)
 ```
 
 ## 문제없는 diff (교육용 더미 데이터입니다)
@@ -109,15 +105,20 @@ CiteReview · data/eval_diffs/10_clean_refactor.diff
 
 `+` 줄에는 `-` 줄(원래 줄)의 들여쓰기를 붙입니다 (`+` 줄끼리의 상대 들여쓰기는 유지).
 
-한 파일의 줄 길이(E501) 지적은 한 항목으로 묶고 수정안을 붙이지 않습니다 (Review JSON에는 개별로 남음):
+**줄 길이(E501)는 번호 붙은 지적이 아니라 화면 끝 "## 참고" 두 줄로만 보여 줍니다** (round3 이후 개선 ③). 줄 번호만 적고(15개가 넘으면 "외 N줄"), 수정안은 붙이지 않습니다.
+- 스타일 이슈 섹션·맨 끝 지적 수·"다듬을 것" 수·HITL 항목 번호에서 빠집니다. E501만 있으면 스타일 이슈는 "(없음)"입니다.
+- 추천 개선안의 줄 길이 항목은 최대 1개이고, 다른 지적이 있으면 넣지 않습니다. 요약 3줄은 "스타일: 줄 길이 초과 N줄."입니다.
+- 게시용 코멘트 본문도 같은 형식이며, HITL에서 번호를 빼도 "참고"는 남습니다.
+- **평가용 Review JSON에는 E501이 개별 지적으로 그대로 남고**, 탐지 판정·근거 확인 비율·근거-지적 일치율은 그 개별 지적으로 계산합니다.
+
+줄별 길이와 코드 줄·주석·docstring 구분은 `--verbose`에서만 보입니다:
 
 ```
-2. app/module.py · 줄 길이 초과 9줄 · low
-   한 줄이 88칸(ruff 기준, 한글은 2칸)을 넘습니다. 코드 줄 2, 주석·docstring 7
-   코드 줄: 505 (95), 579 (99)
-   주석·docstring: 495 (92), 496 (95), 508 (89), 535 (101), 563 (94), 566 (107), 571 (107)
-   근거: ruff E501 (ruff:E501), PEP 8 최대 줄 길이 (PEP8-maximum-line-length)
-   나누는 방법: 괄호 안에서 줄을 바꾸거나, 긴 문자열·주석·docstring을 여러 줄로 나눕니다(줄마다 수정안은 붙이지 않음). 기준이 팀과 다르면 저장소 자체 ruff 설정(line-length)으로 조정하세요.
+## 줄 길이 상세 (--verbose)
+- app/module.py · 줄 길이 초과 9줄 (기준 88칸, 한글은 2칸) · 코드 줄 2, 주석·docstring 7
+  코드 줄: 505 (95), 579 (99)
+  주석·docstring: 495 (92), 496 (95), 508 (89), 535 (101), 563 (94), 566 (107), 571 (107)
+나누는 방법: 괄호 안에서 줄을 바꾸거나, 긴 문자열·주석·docstring을 여러 줄로 나눕니다(줄마다 수정안은 붙이지 않음). 기준이 팀과 다르면 저장소 자체 ruff 설정(line-length)으로 조정하세요.
 ```
 
 요약 5줄은 변경 내용 → 보안·버그 → 스타일 → 리뷰 범위·기준 → 가장 먼저 할 일 순서입니다.

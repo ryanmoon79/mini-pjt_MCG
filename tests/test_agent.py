@@ -866,3 +866,119 @@ def test_verbose_shows_usage_totals():
     text = render_verbose([usage])
     assert "합계: 호출 1회 · 입력 1,200 · 출력 30" in text
     assert "- synthesize: 호출 1회" in text
+
+
+# ── round3 이후 ②: 결과를 JSON 글로 답한 리뷰어 (평가 21번·day03·day04) ─────────
+
+
+def _llmchain_finding():
+    return {
+        "issue_type": "bug",
+        "file": "app/chain.py",
+        "line": 12,
+        "severity": "high",
+        "message": "langchain.chains는 1.x에서 제거되어 ImportError가 납니다.",
+        "evidence": [{"type": "code", "source": "app/chain.py:12"}],
+        "suggestion": "LCEL로 바꿉니다.",
+    }
+
+
+def test_reviewer_json_text_is_parsed_without_extra_call(retriever):
+    """리뷰어가 결과 도구 대신 JSON 글로 답하면 그 글을 파싱한다 (보완 호출 없음)."""
+    models = _models([])
+    models["bug_reviewer"] = fake(
+        json.dumps({"findings": [_llmchain_finding()]}, ensure_ascii=False)
+    )
+    out = run_query(
+        "data/eval_diffs/03_llmchain.diff 를 리뷰해줘", llm=models, retriever=retriever
+    )
+    reviewers = {e["name"]: e for e in out["trace"] if e["type"] == "reviewer"}
+    assert reviewers["bug_reviewer"]["structured"] == "agent_text"
+    usage = next(e for e in out["trace"] if e["type"] == "usage")
+    assert "bug_reviewer:finalize" not in usage["by_role"]  # 보완 단계를 부르지 않음
+    review = next(e["review"] for e in out["trace"] if e["type"] == "review")
+    assert [f["line"] for f in review["findings"]] == [12]
+    assert "결과 없음" not in out["answer"]
+
+
+def test_finalize_json_text_is_parsed_and_only_garbage_is_none(retriever):
+    """보완 단계도 도구 없이 JSON 글(```json 울타리)로 답하면 파싱, 파싱 실패만 none."""
+    from src.reviewers import parse_findings_text
+
+    models = _models([])
+    models["bug_reviewer"] = fake(
+        "리뷰를 마쳤습니다.",  # JSON 아님 → 보완 단계
+        "```json\n" + json.dumps({"findings": [_llmchain_finding()]}) + "\n```",
+    )
+    out = run_query(
+        "data/eval_diffs/03_llmchain.diff 를 리뷰해줘", llm=models, retriever=retriever
+    )
+    reviewers = {e["name"]: e for e in out["trace"] if e["type"] == "reviewer"}
+    assert reviewers["bug_reviewer"]["structured"] == "finalize_text"
+    review = next(e["review"] for e in out["trace"] if e["type"] == "review")
+    assert [f["line"] for f in review["findings"]] == [12]
+    # 파서 단위: 빈 목록·목록만 온 경우는 받고, 글·스키마 위반은 None
+    assert parse_findings_text('{\n  "findings": []\n}').findings == []
+    assert len(parse_findings_text(json.dumps([_llmchain_finding()])).findings) == 1
+    assert parse_findings_text("스타일 문제는 없습니다.") is None
+    assert parse_findings_text('{"findings": [{"line": "x"}]}') is None
+
+
+# ── round3 이후 ③: 줄 길이는 화면 끝 "## 참고" ───────────────────────────
+
+
+def test_line_length_recommendations_are_limited():
+    """추천 개선안의 줄 길이 항목: 다른 지적이 있으면 빼고, 줄 길이만 있으면 1개만."""
+    from src.agent import limit_line_length_recs
+
+    e501 = [_finding("style", 9, "ruff:E501"), _finding("style", 12, "ruff:E501")]
+    recs = [
+        "긴 줄을 괄호 안에서 나누세요.",
+        "줄 길이를 88칸 이하로 맞추세요.",
+        "테스트 추가",
+    ]
+    assert limit_line_length_recs(recs, e501) == [recs[0], recs[2]]
+    bug = _finding("bug", 7, "DEP-LLMChain", "high")
+    assert limit_line_length_recs(recs, e501 + [bug]) == [recs[2]]
+    # 인젝션 참고(low)는 "다른 지적"으로 치지 않음
+    note = _finding("security", 2, "injection-scanner:ignore-instructions")
+    assert limit_line_length_recs(recs, e501 + [note]) == [recs[0], recs[2]]
+
+
+def test_post_body_keeps_line_length_note_and_verbose_has_detail(
+    monkeypatch, retriever
+):
+    """04번: HITL 번호에 E501이 없고(번호를 빼도 영향 없음), 게시 본문에도 참고가 남음.
+
+    줄별 길이·코드/주석 구분은 --verbose(trace stage="line_length")에서만 보인다.
+    """
+    from src.agent import resume_review
+    from src.render import render_verbose
+
+    monkeypatch.setenv("CITEREVIEW_ALLOWED_POST_REPOS", "me/practice-repo")
+    models = _models([])
+    models["synthesizer"] = fake(
+        draft(
+            change="app/prompts.py에 리뷰·요약 프롬프트 템플릿을 추가합니다.",
+            action="꼭 고쳐야 할 것은 없습니다.",
+            recommendations=[
+                "긴 줄을 괄호 안에서 나누세요.",
+                "줄 길이를 88칸에 맞추세요.",
+            ],
+        )
+    )
+    out = run_query(
+        "data/eval_diffs/04_long_line.diff 를 리뷰해줘", llm=models, retriever=retriever
+    )
+    review = next(e["review"] for e in out["trace"] if e["type"] == "review")
+    assert review["recommendations"] == ["긴 줄을 괄호 안에서 나누세요."]  # 최대 1개
+    assert "## 참고\n줄 길이 초과 1줄 (기준 88칸): app/prompts.py 9" in out["answer"]
+    assert "(95)" not in out["answer"]
+    verbose = render_verbose(out["trace"])
+    assert "## 줄 길이 상세 (--verbose)" in verbose and "9 (95)" in verbose
+    tid = next(e["thread_id"] for e in out["trace"] if e["type"] == "hitl")
+    posted = resume_review(
+        tid, {"action": "approve", "ignore": [1], "repo": "me/practice-repo"}
+    )
+    assert posted["post"]["status"] == "posted"
+    assert "줄 길이 초과 1줄 (기준 88칸): app/prompts.py 9" in posted["post"]["body"]

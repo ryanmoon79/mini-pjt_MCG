@@ -13,16 +13,17 @@ LLM 코드 리뷰는 근거가 없어 믿고 고칠지 판단하기 어렵고, L
 
 ### 핵심 결과 한눈에
 
-> **이 절과 아래 "RAGAS 평가 결과"·"인-아웃 세트 통과율"의 숫자는 2차 평가 기준입니다** (리뷰 모델 Claude Haiku 4.5, 제출 시점 태그 `submission-round2`). 그 뒤 main에 들어간 다음 버전(D1~D6)은 아직 다시 평가하지 않았습니다.
+> **두 기준을 나란히 적습니다.** 2차는 제출 시점(태그 `submission-round2`, 리뷰 모델 Claude Haiku 4.5), 3차 B는 다음 버전 코드(커밋 `00807f1`)를 gpt-oss-120b로 돌린 결과입니다. **리뷰 모델과 코드가 함께 바뀌어 직접 비교가 아닙니다.** 같은 Haiku로 다음 버전 코드를 돌리는 3차 A는 토큰 한도로 보류 중입니다. 자세한 원인 분석은 [round3_report.md](evaluation/round3_report.md).
 
-| 항목 | 결과 |
-|---|---|
-| 인-아웃 통과율 (본 세트 20건) | 1차 **9/20** → 정정·재채점 **15/20** → 2차 **20/20** (완성 기준 14/20) |
-| 추가 세트 (함정 케이스 21·22, 2차에서 처음 실행) | **2/2** |
-| 근거 확인 비율 (존재) | **1.0** (31 → 31) |
-| 근거-지적 일치율 (타당, 2차 전용) | **1.0** (8/8), C2 제거 0건 |
-| 전체 실행 시간 | 1차 4분 31초 (20건, 동시 5개) → 2차 **2분 55초** (22건, 동시 2개) |
-| RAGAS | faithfulness 0.729 · answer_relevancy 0.264 · context_precision 0.711 · context_recall 1.000 ([아래](#ragas-평가-결과)) |
+| 항목 | 2차 (Haiku, 제출) | 3차 B (gpt-oss, 다음 버전) |
+|---|---|---|
+| 인-아웃 통과율 (본 세트 20건) | 1차 **9/20** → 정정·재채점 **15/20** → 2차 **20/20** (완성 기준 14/20) | **17/20** (실패 4·9·10) |
+| 추가 세트 (함정 케이스 21·22) | **2/2** | **1/2** (실패 22) |
+| 근거 확인 비율 (존재) | **1.0** (31 → 31) | **1.0** (31 → 31) |
+| 근거-지적 일치율 (타당) | **1.0** (8/8), C2 제거 0건 | **1.0** (4/4), C2 제거 0건 |
+| 전체 실행 시간 (22건, 동시 2개) | 1차 4분 31초 (20건, 동시 5개) → 2차 **2분 55초** | **2분 37초** |
+| 케이스당 토큰 (평균) | (기록 없음) | 입력 13,694 · 출력 1,626 · 호출 8회 |
+| RAGAS | faithfulness 0.729 · answer_relevancy 0.264 · context_precision 0.711 · context_recall 1.000 ([아래](#ragas-평가-결과)) | 미실행 |
 
 ## 활용한 패턴 (Day 1~7)
 
@@ -140,7 +141,7 @@ python -m src.gui_server      # 브라우저가 열림 (Windows는 run.bat 더�
 
 ## 인-아웃 세트 통과율 (자체 평가)
 
-평가셋: [evaluation/test_queries.csv](evaluation/test_queries.csv) 본 세트 20건(positive 8 / negative 4 / edge 5 / guardrail 3) + 추가 세트 2건. 리뷰 모델 Claude Haiku 4.5, 케이스마다 1회. 규칙은 [evaluation/README.md](evaluation/README.md)를 따릅니다.
+평가셋: [evaluation/test_queries.csv](evaluation/test_queries.csv) 본 세트 20건(positive 8 / negative 4 / edge 5 / guardrail 3) + 추가 세트 2건. 리뷰 모델 1·2차 Claude Haiku 4.5, 3차 B gpt-oss-120b, 케이스마다 1회. 규칙은 [evaluation/README.md](evaluation/README.md)를 따릅니다.
 
 - **1차:** 9 / 20 통과 → 같은 기록을 판정기 v2와 정정된 CSV로 재채점하면 15 / 20 ([round1_report.md](evaluation/round1_report.md))
 - **2차 (개선 후):** **20 / 20** 통과, 추가 세트 2 / 2, 실행 오류 0건 ([round2_report.md](evaluation/round2_report.md))
@@ -148,6 +149,10 @@ python -m src.gui_server      # 브라우저가 열림 (Windows는 run.bat 더�
   - 9 → 15 (+6): 판정기 오판 5건 해소, CSV 13번 정정(AttributeError → TypeError). 에이전트 출력은 그대로
   - 15 → 20 (+5): 호출 한도로 끝나지 못한 4건(재시도·호출 한도와 형식 오류 분리·동시 실행 2개), `langchain_classic` 권장 문장 1건(결정적 검사)
 - 그 밖에: 근거 확인 비율 1.0, 근거-지적 일치율 1.0(8/8), guardrail 3/3, 원문 노출·무단 게시 0건, `tests/` 34건 통과
+- **3차 B (다음 버전 코드 `00807f1` + gpt-oss-120b, 2차와 직접 비교 아님):** **17 / 20**, 추가 세트 1 / 2, 실행 오류 0건 ([round3_report.md](evaluation/round3_report.md))
+  - 실패 원인: 4번은 **코드**(줄 길이 지적을 코드가 만들면서 리뷰어가 `search_evidence`를 부르지 않음 — CSV `expected_tools`와 불일치), 9·22번은 **모델**의 과잉 지적, 10번은 종합 노드가 구조화 출력 대신 글로 답한 **모델** 응답 형식(코드에 대비 없음)
+  - 리뷰어 결과를 받지 못한 경우(`structured` none): 리뷰어 실행 51회 중 2회, 원인은 결과를 JSON 글로 답하는 gpt-oss 습관(크기와 무관해 보임)
+  - 3차 A(같은 코드 + Haiku 4.5, 핵심 7건)는 토큰 한도로 보류, `00807f1` 코드로 재실행 예정
 
 ## 트라이앤에러 회고
 

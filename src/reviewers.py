@@ -165,21 +165,71 @@ FINALIZE_REQUEST = (
 )
 
 
-def _finalize(model, messages: list, name: str) -> ReviewerFindings | None:
+def _message_text(message) -> str:
+    """AI 메시지의 일반 글 부분만 (gpt-oss의 추론 블록은 제외)."""
+    content = getattr(message, "content", "")
+    if isinstance(content, str):
+        return content
+    return "\n".join(
+        p.get("text", "")
+        for p in content
+        if isinstance(p, dict) and p.get("type") == "text"
+    )
+
+
+def parse_findings_text(text: str) -> ReviewerFindings | None:
+    """글로 온 JSON을 ReviewerFindings로 파싱합니다 (결정적, LLM 없음).
+
+    gpt-oss는 결과 도구를 부르는 대신 `{"findings": [...]}`를 글로 답할 때가 있습니다
+    (round3: 평가 21번, day03·day04 커밋 리뷰). ```json 울타리가 있어도 되고,
+    지적 목록만 `[...]`로 온 경우도 받습니다. 스키마에 맞지 않으면 None.
+    """
+    import json
+
+    from pydantic import ValidationError
+
+    text = (text or "").strip()
+    for opener, closer in (("{", "}"), ("[", "]")):
+        start, end = text.find(opener), text.rfind(closer)
+        if start == -1 or end <= start:
+            continue
+        try:
+            data = json.loads(text[start : end + 1])
+            if isinstance(data, list):
+                data = {"findings": data}
+            if isinstance(data, dict) and "findings" in data:
+                return ReviewerFindings.model_validate(data)
+        except (json.JSONDecodeError, ValidationError):
+            continue
+    return None
+
+
+def _finalize(model, messages: list, name: str) -> tuple[ReviewerFindings | None, str]:
     """리뷰어가 결과 도구(ReviewerFindings)를 부르지 않고 끝났을 때의 보완 단계.
 
-    gpt-oss는 tool_choice="any"를 받아도 강제하지 않아 결과 도구를 건너뛸 때가 있습니다.
-    리뷰어의 대화 기록(마스킹 후)을 그대로 주고 구조화 출력으로 한 번만 더 묻습니다.
-    실패하면 None (지적 0건으로 처리하고 trace에 남김).
+    gpt-oss는 tool_choice="any"를 받아도 강제하지 않아 결과 도구를 건너뛰고, 결과를
+    JSON **글**로 답할 때가 있습니다. 순서:
+    1. 리뷰어의 마지막 답이 JSON 글이면 그대로 파싱 (모델 호출 없음) → "agent_text"
+    2. 아니면 대화 기록(마스킹 후)을 주고 구조화 출력으로 한 번 더 묻기 → "finalize"
+    3. 그 답도 도구 없이 JSON 글이면 파싱 → "finalize_text"
+    4. 모두 실패할 때만 None → "none" (지적 0건, 화면에 "결과 없음(확인 못 함)")
     """
+    last = next((m for m in reversed(messages) if isinstance(m, AIMessage)), None)
+    parsed = parse_findings_text(_message_text(last)) if last is not None else None
+    if parsed is not None:
+        return parsed, "agent_text"
     try:
-        chain = model.with_structured_output(ReviewerFindings)
-        return chain.invoke(
+        chain = model.with_structured_output(ReviewerFindings, include_raw=True)
+        out = chain.invoke(
             mask_messages(list(messages) + [HumanMessage(content=FINALIZE_REQUEST)]),
             config={"metadata": {ROLE_KEY: f"{name}:finalize"}},  # 토큰 따로 집계
         )
-    except Exception:  # 형식 오류도 보완 실패로 봄
-        return None
+    except Exception:  # 호출·형식 오류도 보완 실패로 봄
+        return None, "none"
+    if out.get("parsed") is not None:
+        return out["parsed"], "finalize"
+    parsed = parse_findings_text(_message_text(out.get("raw")))
+    return (parsed, "finalize_text") if parsed is not None else (None, "none")
 
 
 def _wrap_reviewer(
@@ -200,13 +250,14 @@ def _wrap_reviewer(
         structured = out.get("structured_response")
         source = "agent"
         if structured is None:
-            structured = _finalize(model, out["messages"], name)
-            source = "finalize" if structured is not None else "none"
+            structured, source = _finalize(model, out["messages"], name)
         result = structured or ReviewerFindings()
         collector[name] = list(result.findings)
         status[name] = source
         if trace is not None:
-            # structured: agent(결과 도구 호출) / finalize(보완 단계) / none(실패, 0건)
+            # structured: agent(결과 도구) / agent_text(리뷰어 답의 JSON 글) /
+            # finalize(보완 단계 도구) / finalize_text(보완 답의 JSON 글) /
+            # none(모두 실패, 0건)
             trace.add(
                 "reviewer",
                 name=name,

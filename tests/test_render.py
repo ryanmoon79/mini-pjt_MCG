@@ -84,6 +84,17 @@ def rendered_03() -> str:
                 "evidence": [{"type": "code", "source": "app/chain.py:22"}],
                 "suggestion": "반환 타입을 Runnable로 바꿉니다.",
             },
+            {  # 줄 길이: 번호 항목이 아니라 끝의 "## 참고"로 (기준 화면과 같은 구조)
+                "issue_type": "style",
+                "file": "app/chain.py",
+                "line": 18,
+                "severity": "low",
+                "message": "줄 길이가 95칸으로 기준 88칸을 넘습니다.",
+                "evidence": [
+                    {"type": "tool", "source": "ruff", "rule_id": "ruff:E501"}
+                ],
+                "suggestion": "줄을 나눕니다.",
+            },
         ],
         recommendations=["다른 파일의 구버전 import도 확인하세요."],
     )
@@ -212,9 +223,13 @@ def test_fix_plus_lines_take_indent_of_minus_line():
     assert "     +         y = 1" in lines  # 상대 들여쓰기(4칸) 유지
 
 
-def test_line_length_findings_are_grouped_per_file():
-    """파일별 E501은 한 항목으로 묶고 코드 줄·주석으로 나누며 수정안은 없음."""
-    from src.render import ordered_items
+def test_line_length_is_a_short_note_not_numbered_items():
+    """E501은 번호 항목에서 빠지고 화면 끝 "## 참고" 두 줄로만 (round3 이후 ③).
+
+    줄 번호만 보이고 길이·코드/주석 구분은 --verbose(line_length_detail)에만 있다.
+    건수·다듬을 것·HITL 번호에서 빠지며, Review JSON에는 개별 지적이 그대로 남는다.
+    """
+    from src.render import line_length_detail, line_length_of, ordered_items
 
     files = _files_03()
     review = Review(
@@ -227,13 +242,34 @@ def test_line_length_findings_are_grouped_per_file():
     )
     lengths = {("app/chain.py", 23): (95, 88), ("app/chain.py", 24): (91, 88)}
     text = render_review(review, files, title="t", line_lengths=lengths)
-    lines = text.splitlines()
-    assert "app/chain.py · 줄 길이 초과 2줄 · low" in text
-    assert "   코드 줄: 24 (91)" in lines
-    assert "   주석·docstring: 23 (95)" in lines  # 23행은 docstring 줄
-    block = text.split("줄 길이 초과 2줄", 1)[1].split("\n\n", 1)[0]
-    assert "고치는 방법" not in block and "저장소 자체 ruff 설정" in block
-    items = ordered_items(review)
-    assert [len(it) for it in items] == [1, 2]  # E711 1건 + E501 묶음(2건)
-    assert "지적 2건" in text
+    style = text.split("## 스타일 이슈", 1)[1].split("## 추천 개선안", 1)[0]
+    assert "1. app/chain.py:17 · low" in style and "줄 길이" not in style
+    note = text.split("## 참고\n", 1)[1].split("\n\n", 1)[0].splitlines()
+    assert note == [
+        "줄 길이 초과 2줄 (기준 88칸): app/chain.py 23, 24"
+        " / ruff format 또는 괄호 안 줄바꿈으로 정리",
+        "(ruff:E501, PEP8-maximum-line-length, 길이는 --verbose)",
+    ]
+    assert (
+        "(95)" not in text and "주석·docstring" not in text
+    )  # 길이·구분은 화면에 없음
+    assert "지적 1건 (꼭 고칠 것 0 · 다듬을 것 1)" in text  # E501 제외
+    assert [len(it) for it in ordered_items(review)] == [1]  # HITL 번호도 E711만
     assert len(review.findings) == 3  # Review JSON에는 개별 지적이 그대로 남음
+    detail = line_length_detail(line_length_of(review), files, lengths)
+    assert "  코드 줄: 24 (91)" in detail
+    assert "  주석·docstring: 23 (95)" in detail  # 23행은 docstring 줄
+
+
+def test_only_line_length_leaves_style_section_empty():
+    """E501만 있으면 스타일 이슈 섹션은 "(없음)", 지적 수 0건, 참고에만 나옴."""
+    files = _files_03()
+    review = Review(
+        summary=[f"요약 {i}" for i in range(1, 6)],
+        findings=[_style(24, ["ruff:E501"])],
+    )
+    text = render_review(review, files, title="t")
+    style = text.split("## 스타일 이슈\n\n", 1)[1]
+    assert style.startswith("(없음)")
+    assert "줄 길이 초과 1줄 (기준 ?칸): app/chain.py 24" in text
+    assert "지적 0건 (꼭 고칠 것 0 · 다듬을 것 0)" in text

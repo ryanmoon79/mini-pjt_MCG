@@ -99,6 +99,10 @@ GUI 규칙은 [CLAUDE.md](CLAUDE.md) 6번 "GUI"를 따릅니다. 에이전트·C
   - D6-6 D5 준비: `run_eval.py --review-model gpt-oss|haiku`(판정 Nova Pro 고정), `--core`(2·3·4·14·15·17·19), 폴더 이름 끝에 모델 이름, `run_meta.json`·`summary.json`에 모델 기록, `round3_report.md` 틀(조건 A·B).
   - D6-7 더미 표시 비밀값(day04 `0c4f653` 리뷰가 계기): 주석에 더미 표시가 있으면 low 참고, 값 자체는 검사하지 않음(18번 high 유지, 평가셋 22개 diff에서 low로 바뀌는 비밀값 0건 — 조건 A·B 비교에 영향 없음). 확인: `test_example_in_value_only_stays_high`, `test_dummy_comment_above_lowers_to_note`.
   - D6-8 day04 버그 리뷰어 none 원인(LangSmith trace): 같은 diff를 두 번 리뷰, 두 번째에 버그 리뷰어가 결과 도구 대신 `{"findings": []}`를 글로 답하고(입력 7,405 토큰, stop=end_turn) 보완 단계도 글로만 답함(출력 12토큰) → 구조화 파서 None. 입력 크기보다 "JSON을 글로 답하는" 모델 습관이 원인. `run_eval` summary `structured_by_size`(케이스별 상태·.py 줄 수·리뷰어 입력 토큰) 추가.
-- [ ] **D5 다음 버전 평가** — 본 세트 20 + 추가 세트 2 재실행(gpt-oss-120b), 4·14·15·17·19번 따로 확인, 커밋 재리뷰 3건 + day06 500줄, 토큰(D4-4) 함께 기록, 리포트(`evaluation/round3_report.md`, 2차 리포트는 유지).
-  - 끝나면 README "핵심 결과 한눈에"·"RAGAS 평가 결과"·"인-아웃 세트 통과율"을 round3 기준으로 갱신합니다(2차 기준 표시 문장 교체, 2차 값은 비교용으로 남기고 리뷰 모델을 함께 적음).
+- [ ] **D5 다음 버전 평가** (커밋 `00807f1`) — B 완료, **A 보류**(Haiku 일일 토큰 한도, `00807f1` worktree로 재실행 예정 — 절차는 round3_report.md 1절).
+  - [x] B: gpt-oss 22건 — 본 세트 17/20(실패 4·9·10), 추가 1/2(실패 22), 실행 오류 0, structured none 2/51(JSON 글 응답). 커밋 재리뷰 5건(day07·day05·day03·day06 500·`cd65c0f` 409)과 토큰(500줄은 추정치). 리포트 `evaluation/round3_report.md`.
+  - [x] README를 round3 기준으로 갱신(2차 값은 비교용으로 나란히, 리뷰 모델 표시).
+  - [ ] A: Haiku 핵심 7건 → round3_report.md 1절·6절 결론만 갱신.
+- [x] **round3 이후 ② JSON 글 응답 파싱** — 리뷰어 답·보완 답이 JSON 글이면 파싱(`agent_text`·`finalize_text`), 모두 실패할 때만 none. 확인: `test_reviewer_json_text_is_parsed_without_extra_call`, `test_finalize_json_text_is_parsed_and_only_garbage_is_none`. 종합 노드 글 응답(10번)은 범위 밖, 결정 대기.
+- [x] **round3 이후 ③ 줄 길이 화면 간략화** — "## 참고" 두 줄, 상세는 --verbose, 건수·HITL 번호 제외, 추천 개선안 줄 길이 최대 1개, Review JSON은 그대로. 확인: `test_line_length_is_a_short_note_not_numbered_items` 외 3건, 4·14·15·17번 실제 실행(참고 줄로 판정 항목 통과, 17번은 2차 시도).
   - 기준 시점: 2차 제출은 태그 `submission-round2`(커밋 `7d2400c`), 다음 버전은 main (submission-round2 태그 이후).

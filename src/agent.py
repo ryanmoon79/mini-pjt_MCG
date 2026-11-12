@@ -56,6 +56,8 @@ from src.observability import ROLE_KEY, TraceRecorder, record_usage
 from src.render import (
     TYPE_LABEL,
     is_line_length,
+    line_length_detail,
+    line_length_of,
     ordered_items,
     render_rejection,
     render_review,
@@ -324,6 +326,29 @@ def line_length_findings(ruff_rows: list[dict], settings, doc: dict | None) -> l
                 suggestion=LINE_SPLIT_HINT,
             )
         )
+    return out
+
+
+_LENGTH_REC_RE = re.compile(
+    r"줄\s*길이|긴\s*줄|E501|line[-_ ]?length|\d+\s*(?:자|칸)\s*(?:이하|이내|를 넘)",
+    re.IGNORECASE,
+)
+
+
+def limit_line_length_recs(recs: list[str], findings: list[Finding]) -> list[str]:
+    """추천 개선안의 줄 길이 항목 정리 (결정적).
+
+    다른 지적(줄 길이·참고 제외)이 있으면 줄 길이 항목은 넣지 않고,
+    줄 길이 지적만 있으면 최대 1개만 남깁니다 (줄 길이는 화면 끝 "## 참고"에 있음).
+    """
+    others = [f for f in findings if not is_line_length(f) and not is_note(f)]
+    out, kept_length = [], False
+    for r in recs:
+        if _LENGTH_REC_RE.search(r):
+            if others or kept_length:
+                continue
+            kept_length = True
+        out.append(r)
     return out
 
 
@@ -741,7 +766,10 @@ def build_graph(ctx: RunContext, checkpointer=None):
             change = change_fallback(ctx.check.py_files)
         if "action" in problems:
             action = action_fallback(ctx.findings)
-        recs = [r for r in draft.recommendations if not mentions_classic(r)]
+        recs = limit_line_length_recs(
+            [r for r in draft.recommendations if not mentions_classic(r)],
+            ctx.findings,
+        )
         summary = [
             " ".join(change.split()),
             secbug_line(ctx.findings),
@@ -783,6 +811,17 @@ def build_graph(ctx: RunContext, checkpointer=None):
             criteria=ctx.settings.label(),
             unchecked=_unchecked(ctx),
         )
+        # 줄 길이 상세(코드 줄·주석 구분, ruff 길이)는 화면에 없고 --verbose에서만
+        long_lines = line_length_of(ctx.review)
+        if long_lines:
+            ctx.trace.add(
+                "guardrail",
+                stage="line_length",
+                count=len(long_lines),
+                detail=line_length_detail(
+                    long_lines, ctx.check.py_files, ctx.line_lengths
+                ),
+            )
         return {}
 
     def hitl(state: GraphState) -> GraphState:
@@ -825,12 +864,14 @@ def build_graph(ctx: RunContext, checkpointer=None):
             ignore = set(decision.get("ignore", []))
             # 화면 번호는 표시 항목 단위
             # (E501 묶음 번호를 빼면 그 파일의 E501 전부 제외)
+            # 화면 번호는 번호 붙은 지적만. 줄 길이(E501)는 번호가 없는 "참고"라
+            # 무시 대상이 아니고 게시 본문에도 같은 "## 참고"로 그대로 남음
             kept = [
                 f
                 for i, item in enumerate(ordered_items(ctx.review), 1)
                 if i not in ignore
                 for f in item
-            ]
+            ] + line_length_of(ctx.review)
             body = render_review(
                 ctx.review.model_copy(update={"findings": kept}),
                 ctx.check.py_files,

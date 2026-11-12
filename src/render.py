@@ -106,29 +106,101 @@ def _item_severity(item: list[Finding]) -> str:
 
 
 def _items_of(findings: list[Finding], issue_type: str) -> list[list[Finding]]:
-    """한 유형의 표시 항목: style은 파일별 E501을 한 항목으로 묶음."""
-    group = _sorted([f for f in findings if f.issue_type == issue_type])
-    if issue_type != "style":
-        return [[f] for f in group]
-    items: list[list[Finding]] = []
-    by_file: dict[str, list[Finding]] = {}
-    for f in group:
-        if is_line_length(f):
-            by_file.setdefault(f.file, []).append(f)
-        else:
-            items.append([f])
-    items += [sorted(fs, key=lambda f: f.line) for fs in by_file.values()]
-    return sorted(
-        items,
-        key=lambda it: (SEVERITY_ORDER[_item_severity(it)], it[0].file, it[0].line),
+    """한 유형의 번호 붙는 표시 항목 (지적 하나 = 항목 하나).
+
+    줄 길이(E501) 지적은 번호 항목에서 빼고 화면 끝 "## 참고"에 모아 보여 줍니다
+    (`line_length_note`). Review JSON에는 개별 지적으로 그대로 남습니다.
+    """
+    group = _sorted(
+        [f for f in findings if f.issue_type == issue_type and not is_line_length(f)]
     )
+    return [[f] for f in group]
+
+
+def line_length_of(review: Review) -> list[Finding]:
+    """Review의 줄 길이(E501) 지적 (파일·줄 순)."""
+    return sorted(
+        (f for f in review.findings if is_line_length(f)),
+        key=lambda f: (f.file, f.line),
+    )
+
+
+_LIMIT_IN_MESSAGE_RE = re.compile(r"기준 (\d+)칸")
+MAX_NOTE_LINES = 15  # "## 참고"에 보여 줄 줄 번호 최대 수 (나머지는 "외 N줄")
+
+
+def line_length_note(
+    findings: list[Finding], lengths: dict[tuple[str, int], tuple[int, int]]
+) -> list[str]:
+    """화면 끝 "## 참고"의 줄 길이 두 줄 (줄 번호만, 길이·코드/주석은 --verbose)."""
+    if not findings:
+        return []
+    limit = next((lim for (_, lim) in lengths.values()), None)
+    if limit is None:
+        found = (_LIMIT_IN_MESSAGE_RE.search(f.message) for f in findings)
+        limit = next((int(m.group(1)) for m in found if m), None)
+    by_file: dict[str, list[int]] = {}
+    for f in findings:
+        by_file.setdefault(f.file, [])
+        if f.line not in by_file[f.file]:
+            by_file[f.file].append(f.line)
+    total = sum(len(v) for v in by_file.values())
+    shown, parts = 0, []
+    for path, rows in by_file.items():
+        take = rows[: max(0, MAX_NOTE_LINES - shown)]
+        shown += len(take)
+        if take:
+            parts.append(f"{path} {', '.join(map(str, take))}")
+    more = f" 외 {total - shown}줄" if total > shown else ""
+    ids = sorted(  # 도구 근거(ruff:E501) 먼저, 문서 근거(PEP8-…) 뒤
+        {e.rule_id for f in findings for e in f.evidence if e.rule_id},
+        key=lambda r: (not r.startswith("ruff:"), r),
+    )
+    return [
+        f"줄 길이 초과 {total}줄 (기준 {limit or '?'}칸): {'; '.join(parts)}{more}"
+        " / ruff format 또는 괄호 안 줄바꿈으로 정리",
+        f"({', '.join(ids)}, 길이는 --verbose)",
+    ]
+
+
+def line_length_detail(
+    findings: list[Finding],
+    py_files: list[dp.FileDiff],
+    lengths: dict[tuple[str, int], tuple[int, int]],
+) -> list[str]:
+    """--verbose용 줄 길이 상세: 파일별 코드 줄·주석·docstring 구분과 ruff가 잰 길이."""
+    files = {f.path: f for f in py_files}
+    out: list[str] = []
+    for path in dict.fromkeys(f.file for f in findings):
+        kinds = _line_kinds(files.get(path))
+        rows = sorted({f.line for f in findings if f.file == path})
+        limit = next((lim for (p, _), (_, lim) in lengths.items() if p == path), None)
+
+        def fmt(n: int, path=path) -> str:
+            size = lengths.get((path, n))
+            return f"{n} ({size[0]})" if size else str(n)
+
+        code = [fmt(n) for n in rows if kinds.get(n, "code") == "code"]
+        comment = [fmt(n) for n in rows if kinds.get(n) == "comment"]
+        out.append(
+            f"- {path} · 줄 길이 초과 {len(rows)}줄 (기준 {limit or '?'}칸, "
+            f"한글은 2칸) · 코드 줄 {len(code)}, 주석·docstring {len(comment)}"
+        )
+        if code:
+            out.append("  코드 줄: " + ", ".join(code))
+        if comment:
+            out.append("  주석·docstring: " + ", ".join(comment))
+    if out:
+        out.append(LINE_LENGTH_HINT)
+    return out
 
 
 def ordered_items(review: Review) -> list[list[Finding]]:
     """화면 번호 순서(보안 → 버그 → 스타일, 각 심각도순)의 표시 항목 목록.
 
-    E501 묶음은 한 번호에 여러 지적이 들어 있습니다. HITL의 "항목별 무시"가
-    화면 번호로 지적을 고를 때 씁니다 (묶음 번호를 빼면 그 파일의 E501 전부 제외).
+    HITL의 "항목별 무시"가 화면 번호로 지적을 고를 때 씁니다. 줄 길이(E501)는
+    번호가 없는 "## 참고"로 보여 주므로 여기에 들어가지 않습니다
+    (게시 본문에는 항상 그대로 남김).
     """
     out: list[list[Finding]] = []
     for issue_type in ("security", "bug", "style"):
@@ -172,44 +244,6 @@ def _line_kinds(file: dp.FileDiff | None) -> dict[int, str]:
         if n in kinds:
             kinds[n] = "code"
     return kinds
-
-
-def _render_line_length(
-    no: int,
-    item: list[Finding],
-    files: dict[str, dp.FileDiff],
-    titles: dict[str, str],
-    lengths: dict[tuple[str, int], tuple[int, int]],
-) -> list[str]:
-    """파일 하나의 E501 묶음: 줄 번호를 코드 줄·주석·docstring으로 나눠 한 항목으로."""
-    path = item[0].file
-    kinds = _line_kinds(files.get(path))
-    rows = sorted({f.line for f in item})
-    limit = next((lim for (p, _), (_, lim) in lengths.items() if p == path), None)
-
-    def fmt(n: int) -> str:
-        size = lengths.get((path, n))
-        return f"{n} ({size[0]})" if size else str(n)
-
-    code = [fmt(n) for n in rows if kinds.get(n, "code") == "code"]
-    comment = [fmt(n) for n in rows if kinds.get(n) == "comment"]
-    seen, evidence = set(), []
-    for f in item:
-        for e in f.evidence:
-            if e.type != "code" and (e.rule_id or e.source) not in seen:
-                seen.add(e.rule_id or e.source)
-                evidence.append(evidence_label(e, titles))
-    out = [
-        f"{no}. {path} · 줄 길이 초과 {len(rows)}줄 · {_item_severity(item)}",
-        f"   한 줄이 {limit or '기준'}칸(ruff 기준, 한글은 2칸)을 넘습니다. "
-        f"코드 줄 {len(code)}, 주석·docstring {len(comment)}",
-    ]
-    if code:
-        out.append("   코드 줄: " + ", ".join(code))
-    if comment:
-        out.append("   주석·docstring: " + ", ".join(comment))
-    out += ["   근거: " + ", ".join(evidence), f"   {LINE_LENGTH_HINT}", ""]
-    return out
 
 
 def _render_finding(
@@ -294,10 +328,7 @@ def render_review(
         lines: list[str] = [] if group else [empty, ""]
         for it in group:
             no += 1
-            if is_line_length(it[0]):
-                lines += _render_line_length(no, it, files, titles, lengths)
-            else:
-                lines += _render_finding(no, it[0], files, titles)
+            lines += _render_finding(no, it[0], files, titles)
         return lines
 
     for issue_type in ("security", "bug"):
@@ -306,6 +337,10 @@ def render_review(
     out += ["## 스타일 이슈", ""]
     out += render_items(_items_of(review.findings, "style"), "style_reviewer")
     out += ["## 추천 개선안", *[f"- {r}" for r in review.recommendations], ""]
+    # 줄 길이(E501)는 번호 없이 끝에 두 줄로 (건수·다듬을 것·HITL 번호에서 제외)
+    note = line_length_note(line_length_of(review), lengths)
+    if note:
+        out += ["## 참고", *note, ""]
     polish = len(items) - len(must)
     out.append(
         f"지적 {len(items)}건 "
@@ -341,8 +376,8 @@ def render_verbose(trace: list[dict]) -> str:
     out = ["", "## 내부 로그 (--verbose)"]
     review = next((e["review"] for e in trace if e["type"] == "review"), None)
     for e in trace:
-        if e["type"] in {"start", "end", "review"}:
-            continue
+        if e["type"] in {"start", "end", "review"} or e.get("stage") == "line_length":
+            continue  # 줄 길이 상세는 아래 별도 절로
         fields = {k: v for k, v in e.items() if k not in {"type", "t", "elapsed_ms"}}
         out.append(
             f"[{e['elapsed_ms']:>6} ms] {e['type']}: "
@@ -351,6 +386,9 @@ def render_verbose(trace: list[dict]) -> str:
     usage = next((e for e in trace if e["type"] == "usage"), None)
     if usage:
         out += ["", *render_usage(usage)]
+    detail = next((e for e in trace if e.get("stage") == "line_length"), None)
+    if detail and detail.get("detail"):
+        out += ["", "## 줄 길이 상세 (--verbose)", *detail["detail"]]
     if review and review["findings"]:
         out += ["", "## 고치는 방법 전체 (--verbose)"]
         for f in review["findings"]:
