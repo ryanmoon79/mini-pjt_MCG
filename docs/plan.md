@@ -33,16 +33,16 @@
 
 ## 2. 라이브 시연 시나리오 (day08 안내 "자동채점과 라이브 시연")
 
-남은 순서 5번(시연 리허설)에서 연습합니다. **CLI 기준**이며, GUI는 완성되면 장면을 추가합니다(남은 순서 8번). 시연용 diff는 미리 준비하고, 네트워크 문제에 대비해 결과 화면을 `--batch` 출력과 터미널 캡처로 저장해 둡니다. 리뷰 1건은 2차 평가 기준 평균 14초, 최대 21초 걸립니다.
+남은 순서 5번(시연 리허설)에서 연습합니다. **1·3번은 GUI(`run.bat`), 2·4·5번은 CLI**로 진행합니다(G3 결정: 커밋 목록에서 day03 290줄과 day06 338줄 "300줄 초과"가 나란히 보여 본인 PR → 범위 거절이 한 화면에서 이어지기 때문). 네트워크 문제에 대비해 리허설 결과를 `C:\Users\Admin\citereview_demo\`에 저장해 두었습니다(`scene*.txt`). 리뷰 1건은 평균 14초, 최대 약 30초 걸립니다.
 
 | 순서 | 보여 줄 것 | 명령 (CLI) | 확인 포인트 (2차 평가 실제 결과) |
 |---|---|---|---|
 | 0 | (선택) 기준선 시연 | 같은 diff를 리뷰 모델에 그대로 넣은 결과 (미리 저장) | 근거 없는 지적, deprecated API를 놓치거나 추천하는 모습. 지표·판정 없이 나란히 보여 주기만 함 |
-| 1 | 핵심 가치 — **평가셋 밖 확인** (본인 PR) | `python -m src.cli review C:\Users\Admin\citereview_demo\day03_b24f206.diff` (실습 저장소 day03 "완료" 커밋, `.py` 290줄, LangGraph 1.x, 저장소 밖에 저장) | 리허설 결과: E501 11건, 지적마다 `ruff:E501` + `PEP8-maximum-line-length` 근거와 문제 줄 ±1 발췌, 근거 확인 비율 1.0, C2 제거 0. 구버전 API는 없음. 고치는 방법 일부(1·2·8번)는 앞뒤 줄을 중복하므로 그대로 따르지 말라고 설명 |
-| 2 | 구버전 API → 1.x 대체 | `python -m src.cli review data/eval_diffs/16_dep_mixed.diff` | `DEP-create_react_agent`·`DEP-AgentExecutor` 근거와 1.x 대체 코드, `langchain_classic` 권장 없음 (2차 통과 케이스) |
-| 3 | 범위 거절 | `python -m src.cli review C:\Users\Admin\citereview_demo\day06_b465f63.diff` | 실습 저장소 day06 "완료" 커밋(338줄) → LLM 호출 없이 "`.py` 추가·삭제 합계 338줄로 300줄을 넘습니다. diff를 나눠서 리뷰해 주세요." |
-| 4 | 가드레일과 HITL | `python -m src.cli review data/eval_diffs/18_secret_pii.diff --repo <허용 저장소>` → `n`, 이어서 19번 → `y` | 18번: `[MASKED:aws-access-key]`·`[MASKED:email]` 표시와 security 지적. 19번: 인젝션 지적 3건 + 원래 버그 유지, 승인 전에는 게시 없음 → `y` 후 dry-run 코멘트 출력, 허용 목록 밖 저장소는 거부 |
-| 5 | trace·평가 결과 | 같은 명령에 `--verbose`, LangSmith 프로젝트 `citereview`, `evaluation/round2_report.md` | 노드·도구 호출 흐름과 출력 검증 전후 지적 수. 1차 9/20 → 정정·재채점 15/20 → 2차 20/20, 추가 세트 2/2, 근거 확인 비율 1.0·일치율 1.0, RAGAS 4개 값(faithfulness는 설정 수정 이유와 함께) |
+| 1 | 핵심 가치 — **평가셋 밖 확인** (본인 PR) | **GUI**: 저장소 폴더 `C:\Users\Admin\Desktop\sds-ax-practice\sds-ax-training` → 커밋 `b24f206` (day03 "완료", `.py` 290줄) → 리뷰 | 리허설: 진행 7단계 후 승인 대기, 27초. E501 11건(지적마다 `ruff:E501` + `PEP8-maximum-line-length`, 문제 줄 ±1 발췌), 함께 바뀐 `eval_set.json`은 "건너뜀"으로 표시. 구버전 API는 없음. 수정안 일부(79·88·267행)는 앞뒤 줄을 중복하므로 "사람이 확인할 부분"으로 설명 |
+| 2 | 구버전 API → 1.x 대체 | `python -m src.cli review data/eval_diffs/16_dep_mixed.diff` → `n` | 리허설: 꼭 고칠 것 3건. `DEP-AgentExecutor`(high, `create_agent`로 대체), `DEP-create_react_agent`, import 순서. `langchain_classic` 권장 없음. **주의:** `create_react_agent` 지적의 수정안이 `-`/`+` 같은 줄로 나옴(1.x 대체는 요약 3번 줄에 있음) → 요약 줄을 가리키며 설명 |
+| 3 | 범위 거절 | **GUI**: 같은 커밋 목록에서 `b465f63`(day06 "완료", "338줄 · 300줄 초과" 빨간 표시) → 리뷰 | 리허설: 0.7초, LLM 호출 없이 "`.py` 추가·삭제 합계가 338줄로 300줄을 넘습니다. diff를 나눠서 리뷰해 주세요." |
+| 4 | 가드레일과 HITL | `python -m src.cli review data/eval_diffs/18_secret_pii.diff --repo ryanmoon79/mini-pjt_MCG` → `n`, 이어서 19번을 같은 `--repo`로 → `y`, 마지막으로 19번을 `--repo someone/not-allowed` → `y` | 리허설: 18번 마스킹 2건(`[MASKED:aws-access-key]`·`[MASKED:email]`)과 보안 지적 3건, `n`이면 게시 안 함. 19번 인젝션 지적 3건 + 버그 1건, `y`면 dry-run 코멘트 출력, 허용 목록 밖은 "게시 허용 목록에 없음"으로 차단. **사전 준비:** `.env`에 `CITEREVIEW_ALLOWED_POST_REPOS=ryanmoon79/mini-pjt_MCG` |
+| 5 | trace·평가 결과 | 4번의 19번 명령에 `--verbose`, LangSmith 프로젝트 `citereview`, `evaluation/round2_report.md` | 리허설: 노드 진입 시각(input_guardrail → … → hitl, 약 12초)과 도구 호출, 출력 검증 전후 지적 수. 1차 9/20 → 정정·재채점 15/20 → 2차 20/20, 추가 세트 2/2, 근거 확인 비율 1.0·일치율 1.0, RAGAS 4개 값(faithfulness는 설정 수정 이유와 함께) |
 
 - 시연 중 채점자가 다른 인젝션 문장을 시험할 수 있습니다. "승인 단계와 게시 대상은 코드로 강제한다(100% 보장)"와 "지적 내용은 최선 노력 방어(처음 보는 형태는 놓칠 수 있음)"의 차이를 설명할 준비를 합니다.
 - 질문 대비: 20/20은 같은 평가셋으로 고친 결과라는 한계, 그래서 1번을 평가셋 밖 diff로 보여 준다는 점을 먼저 말합니다.

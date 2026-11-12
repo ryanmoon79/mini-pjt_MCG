@@ -327,62 +327,256 @@ PAGE = r"""<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CiteReview</title>
+<meta name="description" content="근거를 다는 코드 리뷰 에이전트 CiteReview의 로컬 시연 화면: 커밋이나 diff를 골라 리뷰하고 게시를 승인합니다.">
 <style>
-  body { font-family: system-ui, sans-serif; margin: 16px; }
-  fieldset { margin-bottom: 12px; }
-  input[type=text] { width: 32em; max-width: 100%; }
-  table { border-collapse: collapse; font-size: 13px; }
-  td, th { border: 1px solid #ccc; padding: 2px 6px; text-align: left; }
-  tr.over td { color: #a00; }
-  #steps span { margin-right: 10px; }
-  #steps .done { font-weight: bold; }
-  pre { font-family: Consolas, "D2Coding", monospace; white-space: pre;
-        overflow-x: auto; background: #f6f6f6; padding: 8px; }
-  .err { color: #a00; }
+/* Hallmark · shape: app screen · genre: modern-minimal · theme: custom · redesign: full
+ * paper: oklch(97.5% 0.006 85) · accent: oklch(52% 0.07 190) · display: system sans · body: system sans
+ * nav: top bar, wordmark and run status · signature: the review ledger, CLI output in a numbered monospace sheet · states: empty, loading, error, waiting, done
+ * axes: warm paper/system sans/muted teal · posture: workbench, sources left, ledger right · contrast: pass · v2.0.0 */
+/* Hallmark · pre-emit critique: P4 H5 E4 S4 R5 V3 · weakest: V, a two-pane tool is the expected shape; kept it because the ledger must stay wide, and spent the variety on the step track drawn as a rule with notches instead of pills */
+:root {
+  --space-2xs: 4px; --space-xs: 8px; --space-sm: 12px; --space-md: 16px; --space-lg: 24px; --space-xl: 40px;
+  --text-xs: 0.8125rem; --text-sm: 0.875rem; --text-md: 1rem; --text-lg: 1.125rem; --text-xl: 1.35rem;
+  --dur-micro: 120ms; --dur-short: 220ms; --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --container: 1440px; --gutter: 32px; --control-h: 36px; --radius: 6px; --rule-hair: 1px;
+  --color-paper: oklch(97.5% 0.006 85);
+  --color-paper-2: oklch(94.5% 0.008 85);
+  --color-paper-3: oklch(99% 0.003 85);
+  --color-ink: oklch(24% 0.012 85);
+  --color-ink-2: oklch(38% 0.012 85);
+  --color-muted: oklch(52% 0.012 85);
+  --color-rule: oklch(87% 0.01 85);
+  --color-accent: oklch(52% 0.07 190);
+  --color-accent-hover: oklch(46% 0.07 190);
+  --color-accent-ink: oklch(99% 0.005 190);
+  --color-accent-soft: oklch(93% 0.03 190);
+  --color-focus: oklch(55% 0.12 240);
+  --color-error: oklch(50% 0.17 27);
+  --color-error-soft: oklch(95% 0.03 27);
+  --color-ledger: oklch(99% 0.003 85);
+  --font-body: system-ui, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  --font-mono: "D2Coding", Consolas, "Cascadia Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-paper: oklch(20% 0.01 85);
+    --color-paper-2: oklch(25% 0.01 85);
+    --color-paper-3: oklch(23% 0.01 85);
+    --color-ink: oklch(92% 0.008 85);
+    --color-ink-2: oklch(80% 0.008 85);
+    --color-muted: oklch(66% 0.01 85);
+    --color-rule: oklch(34% 0.01 85);
+    --color-accent: oklch(70% 0.08 190);
+    --color-accent-hover: oklch(76% 0.08 190);
+    --color-accent-ink: oklch(18% 0.02 190);
+    --color-accent-soft: oklch(30% 0.04 190);
+    --color-focus: oklch(72% 0.12 240);
+    --color-error: oklch(72% 0.14 27);
+    --color-error-soft: oklch(28% 0.05 27);
+    --color-ledger: oklch(17% 0.01 85);
+  }
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { overflow-x: clip; }
+body {
+  margin: 0; background: var(--color-paper); color: var(--color-ink);
+  font-family: var(--font-body); font-size: var(--text-md); line-height: 1.5;
+  caret-color: var(--color-accent);
+}
+:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+[hidden] { display: none !important; }
+button, input, select { font: inherit; }
+h1, h2 { margin: 0; overflow-wrap: break-word; min-width: 0; text-wrap: balance; }
+html { scrollbar-color: var(--color-muted) var(--color-paper); }
+::selection { background: var(--color-accent-soft); color: var(--color-ink); }
+
+.bar {
+  border-bottom: var(--rule-hair) solid var(--color-rule); background: var(--color-paper-3);
+}
+.bar-inner, .work {
+  width: 100%; max-width: var(--container); margin-inline: auto; padding-inline: var(--gutter);
+}
+.bar-inner { display: flex; align-items: baseline; gap: var(--space-md); padding-block: var(--space-sm); }
+.bar h1 { font-size: var(--text-lg); font-weight: 650; }
+.bar p { margin: 0; color: var(--color-muted); font-size: var(--text-sm); }
+
+.work {
+  display: grid; grid-template-columns: minmax(0, 22rem) minmax(0, 1fr);
+  gap: var(--space-lg); padding-block: var(--space-lg);
+}
+.panel {
+  background: var(--color-paper-3); border: var(--rule-hair) solid var(--color-rule);
+  border-radius: var(--radius); padding: var(--space-md); color: var(--color-ink);
+  display: grid; gap: var(--space-sm); align-content: start; min-width: 0;
+}
+.side { display: grid; gap: var(--space-lg); align-content: start; min-width: 0; }
+.main { display: grid; gap: var(--space-lg); align-content: start; min-width: 0; }
+.panel h2 { font-size: var(--text-md); font-weight: 650; }
+.hint { margin: 0; color: var(--color-muted); font-size: var(--text-sm); }
+label.field { display: grid; gap: var(--space-2xs); font-size: var(--text-sm); color: var(--color-ink-2); }
+.row { display: flex; gap: var(--space-xs); flex-wrap: wrap; align-items: center; }
+
+input[type=text], select {
+  width: 100%; min-height: var(--control-h); padding: 0 var(--space-sm);
+  border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius);
+  background: var(--color-paper); color: var(--color-ink);
+  transition: border-color var(--dur-micro) var(--ease-out);
+}
+input[type=text]::placeholder { color: var(--color-muted); }
+input[type=text]:hover, select:hover { border-color: var(--color-muted); }
+input[type=text]:disabled, select:disabled { opacity: 0.55; cursor: not-allowed; }
+
+button {
+  min-height: var(--control-h); padding: 0 var(--space-md); border-radius: var(--radius);
+  border: var(--rule-hair) solid var(--color-rule); background: var(--color-paper);
+  color: var(--color-ink); cursor: pointer;
+  transition: background-color var(--dur-micro) var(--ease-out),
+    border-color var(--dur-micro) var(--ease-out), transform var(--dur-micro) var(--ease-out);
+}
+button:hover { background: var(--color-paper-2); border-color: var(--color-muted); }
+button:active { transform: translateY(1px); }
+button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+button.primary {
+  background: var(--color-accent); border-color: var(--color-accent); color: var(--color-accent-ink);
+}
+button.primary:hover { background: var(--color-accent-hover); border-color: var(--color-accent-hover); }
+.side button.primary { justify-self: start; }
+
+#commits:empty::before { content: "폴더를 넣고 커밋을 불러오면 최근 30개가 여기에 나옵니다."; color: var(--color-muted); font-size: var(--text-sm); }
+#commits { max-height: 26rem; overflow: auto; font-size: var(--text-sm); }
+#commits table { width: 100%; border-collapse: collapse; }
+#commits th, #commits td {
+  text-align: left; padding: var(--space-2xs) var(--space-xs);
+  border-bottom: var(--rule-hair) solid var(--color-rule); vertical-align: top;
+}
+#commits th { font-weight: 600; color: var(--color-ink-2); background: var(--color-paper-2); position: sticky; top: 0; }
+#commits td:first-child { font-family: var(--font-mono); }
+#commits td:nth-child(4) { font-variant-numeric: tabular-nums; white-space: nowrap; }
+#commits tr.over td { color: var(--color-error); }
+#commits .err { color: var(--color-error); }
+#commits td button { min-height: 28px; padding: 0 var(--space-sm); }
+
+.run-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-md); flex-wrap: wrap; }
+#title { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-ink-2); overflow-wrap: anywhere; }
+#title:empty::before { content: "아직 실행한 리뷰가 없습니다."; font-family: var(--font-body); color: var(--color-muted); }
+#status { font-size: var(--text-sm); color: var(--color-ink-2); }
+#status.err { color: var(--color-error); }
+
+#steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+#steps li {
+  position: relative; padding-top: var(--space-md); font-size: var(--text-xs);
+  color: var(--color-muted); border-top: 2px solid var(--color-rule); min-width: 0;
+}
+#steps li::before {
+  content: ""; position: absolute; top: -6px; left: 0; width: 10px; height: 10px;
+  border-radius: 50%; background: var(--color-paper-3); border: 2px solid var(--color-rule);
+}
+#steps li.done { color: var(--color-ink); border-top-color: var(--color-accent); }
+#steps li.done::before { background: var(--color-accent); border-color: var(--color-accent); }
+
+.ledger-head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-md); }
+.check { display: inline-flex; gap: var(--space-xs); align-items: center; font-size: var(--text-sm); color: var(--color-ink-2); cursor: pointer; }
+.check input { width: 16px; height: 16px; accent-color: var(--color-accent); }
+pre {
+  margin: 0; font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.55;
+  white-space: pre; overflow-x: auto; tab-size: 4;
+  background: var(--color-ledger); color: var(--color-ink);
+  border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius);
+  padding: var(--space-md);
+}
+#answer { min-height: 18rem; max-height: 70vh; overflow-y: auto; }
+#answer:empty::before { content: "리뷰를 시작하면 CLI와 같은 결과가 여기에 나옵니다."; font-family: var(--font-body); color: var(--color-muted); }
+#verbose { max-height: 40vh; overflow-y: auto; color: var(--color-ink-2); }
+
+#decision { border-color: var(--color-accent); background: var(--color-accent-soft); }
+#decision .fields { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: var(--space-sm); }
+#post:empty { display: none; }
+
+@media (max-width: 60rem) {
+  :root { --gutter: 16px; }
+  .work { grid-template-columns: minmax(0, 1fr); }
+  #steps { grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: var(--space-md); }
+  #decision .fields { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0.01ms !important; }
+}
 </style>
 </head>
 <body>
-<h1>CiteReview</h1>
+<header class="bar">
+  <div class="bar-inner">
+    <h1>CiteReview</h1>
+    <p>근거를 다는 코드 리뷰, 로컬 실행 (127.0.0.1)</p>
+  </div>
+</header>
 
-<fieldset>
-  <legend>1. 저장소 폴더 → 커밋</legend>
-  <input type="text" id="repo" placeholder="저장소 폴더 경로">
-  <button id="load-commits">커밋 불러오기</button>
-  <div id="commits"></div>
-</fieldset>
+<main class="work">
+  <div class="side">
+    <section class="panel" aria-labelledby="h-commit">
+      <h2 id="h-commit">저장소 커밋</h2>
+      <label class="field">저장소 폴더
+        <input type="text" id="repo" placeholder="C:\path\to\repo">
+      </label>
+      <button id="load-commits">커밋 불러오기</button>
+      <div id="commits"></div>
+    </section>
 
-<fieldset>
-  <legend>또는 diff 파일</legend>
-  <select id="diff-list"><option value="">평가용 diff 선택</option></select>
-  <input type="text" id="diff-path" placeholder="diff 파일 경로">
-  <button id="review-file">리뷰</button>
-</fieldset>
+    <section class="panel" aria-labelledby="h-file">
+      <h2 id="h-file">diff 파일</h2>
+      <label class="field">평가용 diff
+        <select id="diff-list"><option value="">선택 안 함</option></select>
+      </label>
+      <label class="field">파일 경로
+        <input type="text" id="diff-path" placeholder="data/eval_diffs/03_llmchain.diff">
+      </label>
+      <button id="review-file" class="primary">리뷰</button>
+    </section>
+  </div>
 
-<fieldset>
-  <legend>2. 진행</legend>
-  <div id="title"></div>
-  <div id="steps"></div>
-  <div id="status"></div>
-</fieldset>
+  <div class="main">
+    <section class="panel" aria-labelledby="h-run">
+      <div class="run-head">
+        <h2 id="h-run">진행</h2>
+        <div id="status" role="status" aria-live="polite"></div>
+      </div>
+      <div id="title"></div>
+      <ol id="steps"></ol>
+    </section>
 
-<fieldset>
-  <legend>3. 결과</legend>
-  <label><input type="checkbox" id="show-verbose"> 내부 로그</label>
-  <pre id="answer"></pre>
-  <pre id="verbose" hidden></pre>
-</fieldset>
+    <section class="panel" aria-labelledby="h-result">
+      <div class="ledger-head">
+        <h2 id="h-result">결과</h2>
+        <label class="check"><input type="checkbox" id="show-verbose"> 내부 로그</label>
+      </div>
+      <pre id="answer"></pre>
+      <pre id="verbose" hidden></pre>
+    </section>
 
-<fieldset id="decision" hidden>
-  <legend>4. 게시 승인 (dry-run)</legend>
-  <input type="text" id="post-repo" placeholder="게시 저장소 owner/repo">
-  <input type="text" id="ignore" placeholder="뺄 항목 번호 (예: 2 3)">
-  <button id="approve">승인</button>
-  <button id="reject">거절</button>
-  <pre id="post"></pre>
-</fieldset>
+    <section class="panel" id="decision" aria-labelledby="h-decision" hidden>
+      <h2 id="h-decision">게시 승인 (dry-run)</h2>
+      <p class="hint">승인하기 전에는 게시하지 않습니다. 허용 목록에 없는 저장소는 막힙니다.</p>
+      <div class="fields">
+        <label class="field">게시 저장소
+          <input type="text" id="post-repo" placeholder="owner/repo">
+        </label>
+        <label class="field">뺄 항목 번호
+          <input type="text" id="ignore" placeholder="예: 2 3">
+        </label>
+      </div>
+      <div class="row">
+        <button id="approve" class="primary">승인</button>
+        <button id="reject">거절</button>
+      </div>
+      <pre id="post"></pre>
+    </section>
+  </div>
+</main>
 
 <script>
 const $ = (id) => document.getElementById(id);
+const STEP_LABELS = ["입력 가드레일", "planner", "리뷰어", "출력 검증", "종합", "렌더링",
+                     "승인 대기"];
 let job = null, timer = null;
 
 async function api(path, body) {
@@ -394,6 +588,10 @@ async function api(path, body) {
 }
 function setStatus(text, isErr) {
   $("status").textContent = text; $("status").className = isErr ? "err" : "";
+}
+function drawSteps(steps) {
+  $("steps").innerHTML = steps.map((s) =>
+    `<li class="${s.done ? "done" : ""}">${s.label}</li>`).join("");
 }
 
 async function loadDiffs() {
@@ -407,11 +605,16 @@ $("diff-list").onchange = () => { $("diff-path").value = $("diff-list").value; }
 
 $("load-commits").onclick = async () => {
   $("commits").textContent = "불러오는 중…";
+  $("load-commits").disabled = true;
   try {
     const data = await api("/api/commits", {repo: $("repo").value});
+    if (!data.commits.length) {
+      $("commits").textContent = "이 폴더에 커밋이 없습니다.";
+      return;
+    }
     const rows = data.commits.map((c) =>
       `<tr class="${c.over_limit ? "over" : ""}"><td>${c.sha}</td><td>${c.date}</td>` +
-      `<td>${escapeHtml(c.subject)}</td><td>.py ${c.py_files}개 · ${c.py_lines}줄` +
+      `<td>${escapeHtml(c.subject)}</td><td>.py ${c.py_files}개, ${c.py_lines}줄` +
       `${c.over_limit ? " (300줄 초과)" : ""}</td>` +
       `<td><button data-sha="${c.sha}">리뷰</button></td></tr>`).join("");
     $("commits").innerHTML = `<table><tr><th>커밋</th><th>날짜</th><th>메시지</th>` +
@@ -422,6 +625,8 @@ $("load-commits").onclick = async () => {
     }
   } catch (e) {
     $("commits").innerHTML = `<span class="err">${escapeHtml(e.message)}</span>`;
+  } finally {
+    $("load-commits").disabled = false;
   }
 };
 $("review-file").onclick = () =>
@@ -436,6 +641,8 @@ async function startReview(body) {
   clearInterval(timer);
   $("answer").textContent = ""; $("verbose").textContent = "";
   $("post").textContent = ""; $("decision").hidden = true;
+  $("approve").disabled = false; $("reject").disabled = false;
+  drawSteps(STEP_LABELS.map((label) => ({label, done: false})));
   setStatus("리뷰 시작…");
   try {
     job = (await api("/api/review", body)).job;
@@ -449,16 +656,14 @@ async function poll() {
     j = await api("/api/job?id=" + job);
   } catch (e) { return setStatus(e.message, true); }
   $("title").textContent = j.title;
-  $("steps").innerHTML = j.steps.map((s) =>
-    `<span class="${s.done ? "done" : ""}">${s.done ? "✓" : "·"} ${s.label}</span>`
-  ).join("→ ");
+  drawSteps(j.steps);
   if (j.status === "running") return setStatus("실행 중…");
   clearInterval(timer);
   if (j.status === "error") return setStatus(j.error, true);
   $("answer").textContent = j.answer;
   $("verbose").textContent = j.verbose;
   if (j.status === "waiting") {
-    setStatus("승인 대기 중 — 승인하기 전에는 게시하지 않습니다.");
+    setStatus("승인 대기 중");
     $("decision").hidden = false;
   } else { setStatus("완료"); }
 }
@@ -468,6 +673,7 @@ $("show-verbose").onchange = () => {
 };
 
 async function sendDecision(action) {
+  $("approve").disabled = true; $("reject").disabled = true;
   try {
     const data = await api("/api/decision", {job, action, repo: $("post-repo").value,
                                              ignore: $("ignore").value});
@@ -476,11 +682,15 @@ async function sendDecision(action) {
       ? `[dry-run] ${p.repo}에 게시할 코멘트:\n\n${p.body}`
       : `게시하지 않았습니다: ${p.reason}`;
     setStatus("완료");
-  } catch (e) { setStatus(e.message, true); }
+  } catch (e) {
+    setStatus(e.message, true);
+    $("approve").disabled = false; $("reject").disabled = false;
+  }
 }
 $("approve").onclick = () => sendDecision("approve");
 $("reject").onclick = () => sendDecision("reject");
 
+drawSteps(STEP_LABELS.map((label) => ({label, done: false})));
 loadDiffs();
 </script>
 </body>
