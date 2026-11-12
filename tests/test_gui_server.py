@@ -67,3 +67,56 @@ def test_other_origin_is_rejected(server):
     ok = {**host, "Origin": f"http://127.0.0.1:{port}"}
     assert _request(port, "POST", "/api/review", ok, body) == 200
     assert len(started) == 1
+
+
+def test_job_progress_copies_node_events_from_review_thread(monkeypatch, tmp_path):
+    """리뷰 스레드의 trace 노드 진입 이벤트가 그 작업의 진행 단계로 복사된다.
+
+    가짜 모델로 run_query를 감싸 실제 LLM 없이 start_job → 폴링 → 승인 대기까지 본다.
+    """
+    import time
+
+    from langchain_core.embeddings import DeterministicFakeEmbedding
+
+    from src.evidence.search import build_retriever
+    from src.observability.trace import TraceRecorder
+    from src.review.graph import run_query
+    from tests.fakes import call, fake, handoff
+
+    retriever = build_retriever(
+        embeddings=DeterministicFakeEmbedding(size=32),
+        persist_directory=str(tmp_path / "chroma"),
+        collection_name="test_gui_progress",
+    )
+    models = {
+        "supervisor": fake(handoff("bug_reviewer"), handoff("style_reviewer"), "끝"),
+        "bug_reviewer": fake(call("ReviewerFindings", findings=[])),
+        "style_reviewer": fake(call("ReviewerFindings", findings=[])),
+        "synthesizer": fake(
+            call(
+                "SummaryDraft",
+                change="app/chain.py에 요약 체인을 추가합니다.",
+                action="꼭 고쳐야 할 것은 없습니다.",
+                recommendations=[],
+            )
+        ),
+    }
+    # 훅이 바꾼 TraceRecorder.add를 테스트 뒤에 되돌림
+    monkeypatch.setattr(TraceRecorder, "add", TraceRecorder.add)
+    monkeypatch.setattr(
+        gui_server,
+        "run_query",
+        lambda q, **kw: run_query(q, llm=models, retriever=retriever, **kw),
+    )
+    gui_server._install_progress_hook()
+    diff = gui_server.config.EVAL_DIFFS_DIR / "03_llmchain.diff"
+    job_id = gui_server.start_job(diff)
+    deadline = time.time() + 60
+    while gui_server.job_view(job_id)["status"] == "running":
+        assert time.time() < deadline, "리뷰 스레드가 끝나지 않음"
+        time.sleep(0.05)
+    view = gui_server.job_view(job_id)
+    assert view["status"] == "waiting" and view["thread_id"]
+    assert all(step["done"] for step in view["steps"]), view["steps"]
+    names = [e["name"] for e in gui_server.JOBS[job_id]["events"]]
+    assert names[0] == "input_guardrail" and "synthesize" in names

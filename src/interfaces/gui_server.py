@@ -615,6 +615,31 @@ button.commit.over .flag { color: var(--color-error); }
 .commit .line { display: flex; gap: var(--space-xs); align-items: baseline; min-width: 0; }
 .commit .line .msg { flex: 1 1 auto; }
 .commit .flag { flex: none; font-size: var(--text-xs); white-space: nowrap; }
+/* 선택한 카드: 테두리 전체 강조색 + 옅은 강조 배경 + "선택됨" 표시 (색만으로 구분하지 않음).
+   500줄 초과 카드의 빨간 왼쪽 선은 그대로 두어 두 표시가 함께 보이게 함 */
+button.commit.selected {
+  border-color: var(--color-accent); background: var(--color-accent-soft);
+  box-shadow: 0 0 0 1px var(--color-accent);
+}
+button.commit.selected.over { border-left-color: var(--color-error); }
+.commit .pick, #file-pick {
+  flex: none; font-size: var(--text-xs); font-weight: 600; white-space: nowrap;
+  color: var(--color-accent); display: inline-flex; gap: 4px; align-items: center;
+}
+.commit .pick:empty { display: none; }
+.pick-run::before, .pick-done::before { font-family: var(--font-mono); }
+.pick-done::before { content: "✓"; }
+.pick-run::before { content: "●"; animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+/* 리뷰 실행 중에는 다른 카드를 고를 수 없음 (누르면 안내만) */
+button.commit.locked { opacity: 0.55; cursor: not-allowed; }
+button.commit.locked:hover { border-left-color: var(--color-rule); }
+button.commit.locked.over:hover { border-left-color: var(--color-error); }
+#diff-path.picked { border-color: var(--color-accent); background: var(--color-accent-soft); box-shadow: 0 0 0 1px var(--color-accent); }
+#file-pick:empty { display: none; }
+#title .which { color: var(--color-muted); }
+#busy-note { margin: 0; color: var(--color-ink-2); }
+#busy-note.flash { color: var(--color-accent); font-weight: 600; }
 .repo-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-xs); }
 
 .run-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-md); flex-wrap: wrap; }
@@ -687,6 +712,7 @@ pre {
       <button id="load-commits">커밋 불러오기</button>
       <p id="limit" class="hint"></p>
       <div id="commits"></div>
+      <p id="busy-note" class="hint" aria-live="polite" hidden></p>
     </section>
 
     <section class="panel" aria-labelledby="h-file">
@@ -697,7 +723,10 @@ pre {
       <label class="field">파일 경로
         <input type="text" id="diff-path" placeholder="data/eval_diffs/03_llmchain.diff">
       </label>
-      <button id="review-file" class="primary">리뷰</button>
+      <div class="row">
+        <button id="review-file" class="primary">리뷰</button>
+        <span id="file-pick" aria-live="polite"></span>
+      </div>
     </section>
   </div>
 
@@ -745,6 +774,47 @@ const $ = (id) => document.getElementById(id);
 const STEP_LABELS = ["입력 가드레일", "planner", "리뷰어", "출력 검증", "종합", "렌더링",
                      "승인 대기"];
 let job = null, timer = null;
+// 지금 고른 리뷰 대상: {kind: "commit", sha, subject} 또는 {kind: "file", path}
+let selected = null, running = false;
+
+function pickLabel() {
+  return running ? "실행 중" : "선택됨";
+}
+function drawSelection() {
+  for (const b of document.querySelectorAll("#commits button.commit")) {
+    const on = selected && selected.kind === "commit" && b.dataset.sha === selected.sha;
+    b.classList.toggle("selected", !!on);
+    b.classList.toggle("locked", running && !on);
+    if (on) b.setAttribute("aria-current", "true"); else b.removeAttribute("aria-current");
+    b.setAttribute("aria-disabled", running && !on ? "true" : "false");
+    const tag = b.querySelector(".pick");
+    tag.textContent = on ? pickLabel() : "";
+    tag.className = "pick" + (on ? (running ? " pick-run" : " pick-done") : "");
+  }
+  const file = selected && selected.kind === "file";
+  $("diff-path").classList.toggle("picked", !!file);
+  $("file-pick").textContent = file ? pickLabel() : "";
+  $("file-pick").className = file ? (running ? "pick-run" : "pick-done") : "";
+  $("review-file").disabled = running;
+  // 실행 중 안내는 상태 줄(폴링이 덮어씀)과 따로 커밋 목록 아래에 계속 보여 줌
+  $("busy-note").hidden = !running;
+  $("busy-note").textContent = running ? BUSY : "";
+  if (!running) $("busy-note").classList.remove("flash");
+}
+function selectionText() {
+  if (!selected) return "";
+  if (selected.kind === "commit") {
+    const subject = selected.subject.length > 50
+      ? selected.subject.slice(0, 50) + "…" : selected.subject;
+    return `커밋 ${selected.sha} · ${subject || "(메시지 없음)"}`;
+  }
+  return "";
+}
+function setRunning(on) {
+  running = on; drawSelection();
+}
+const BUSY = "리뷰 실행 중에는 다른 커밋·파일을 고를 수 없습니다 (중복 실행 방지). " +
+             "끝나면(승인 대기·완료·오류) 다시 고를 수 있습니다.";
 
 async function api(path, body) {
   const opt = body ? {method: "POST", body: JSON.stringify(body)} : {};
@@ -799,16 +869,25 @@ async function loadCommits() {
       `<li><button class="commit${c.over_limit ? " over" : ""}" data-sha="${c.sha}" ` +
       `title="${escapeHtml(c.subject)}">` +
       `<span class="line"><span class="msg">${escapeHtml(c.subject) || "(메시지 없음)"}` +
-      `</span>${c.over_limit ? `<span class="flag">${data.limit}줄 초과</span>` : ""}` +
+      `</span><span class="pick"></span>` +
+      `${c.over_limit ? `<span class="flag">${data.limit}줄 초과</span>` : ""}` +
       `</span>` +
       `<span class="meta"><span class="sha">${c.sha}</span><span>${c.date}</span>` +
       `<span>.py ${c.py_files}개, ${c.py_lines}줄</span></span>` +
       `</button></li>`).join("");
     $("commits").innerHTML = `<ul class="commit-list">${cards}</ul>`;
+    const subjects = Object.fromEntries(data.commits.map((c) => [c.sha, c.subject]));
     for (const b of $("commits").querySelectorAll("button.commit")) {
-      b.onclick = () => startReview({mode: "commit", repo, sha: b.dataset.sha,
-                                     max_lines: maxLines});
+      b.onclick = () => {
+        if (running) {  // 중복 실행 막기: 실행 중인 리뷰가 끝날 때까지 다른 카드 무시
+          $("busy-note").classList.add("flash");  // 누른 것에 반응: 안내 강조
+          return;
+        }
+        selected = {kind: "commit", sha: b.dataset.sha, subject: subjects[b.dataset.sha] || ""};
+        startReview({mode: "commit", repo, sha: b.dataset.sha, max_lines: maxLines});
+      };
     }
+    drawSelection();  // 목록을 다시 불러와도 고른 커밋 표시 유지
   } catch (e) {
     showCommitError(e.message);
   } finally {
@@ -841,8 +920,11 @@ $("pick-folder").onclick = async () => {
   }
 };
 
-$("review-file").onclick = () =>
+$("review-file").onclick = () => {
+  if (running) return $("busy-note").classList.add("flash");
+  selected = {kind: "file", path: $("diff-path").value};
   startReview({mode: "file", path: $("diff-path").value});
+};
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, (c) =>
@@ -856,10 +938,11 @@ async function startReview(body) {
   $("approve").disabled = false; $("reject").disabled = false;
   drawSteps(STEP_LABELS.map((label) => ({label, done: false})));
   setStatus("리뷰 시작…");
+  setRunning(true);
   try {
     job = (await api("/api/review", body)).job;
     timer = setInterval(poll, 700); poll();
-  } catch (e) { setStatus(e.message, true); }
+  } catch (e) { setRunning(false); setStatus(e.message, true); }
 }
 
 async function poll() {
@@ -867,10 +950,14 @@ async function poll() {
   try {
     j = await api("/api/job?id=" + job);
   } catch (e) { return setStatus(e.message, true); }
-  $("title").textContent = j.title;
+  // 결과가 어느 커밋 것인지: diff 이름 옆에 커밋 해시·메시지 앞부분
+  const which = selectionText();
+  $("title").innerHTML = escapeHtml(j.title) +
+    (which ? ` <span class="which">· ${escapeHtml(which)}</span>` : "");
   drawSteps(j.steps);
   if (j.status === "running") return setStatus("실행 중…");
   clearInterval(timer);
+  setRunning(false);  // 승인 대기·완료·오류: 리뷰 실행은 끝남 → "선택됨" 유지
   if (j.status === "error") return setStatus(j.error, true);
   $("answer").textContent = j.answer;
   $("verbose").textContent = j.verbose;

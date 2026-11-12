@@ -39,7 +39,7 @@
 | 체크포인터 | `InMemorySaver` (`langgraph.checkpoint.memory`) — HITL을 같은 프로세스 안에서 재개하는 용도. 파일로 남기지 않음 (3-1번 `--batch`) |
 | 에이전트 | `langchain.agents.create_agent` + 미들웨어(`langchain.agents.middleware`) |
 | 멀티 에이전트 | `langgraph_supervisor.create_supervisor` + 리뷰어 2종(버그·스타일). 호환 문제 시 대체안은 4번 |
-| 정적 분석 | `ruff` 0.17 (`requirements.txt`). 기본 규칙(`E4`,`E7`,`E9`,`F`)만으로는 줄 길이·이름·import 순서를 못 잡으므로 `select = ["E", "W", "F", "I", "N"]`, `line-length = 88`로 설정. `E1xx`·`E2xx`·`E3xx`는 preview 규칙이라 쓰지 않음(`uvx`로 임시 실행한 ruff 0.17.4에서 확인). 에이전트 도구와 평가 diff 작성이 **같은 설정 파일(`ruff.toml`)**을 씀. 입력이 diff뿐이라 리뷰 대상 저장소의 ruff 설정은 읽지 않고 항상 이 설정을 씀. `ruff_check`는 **변경된 줄의 위반만** 돌려주고, 파일 전체가 보이지 않는 diff에서는 `F`·`I` 규칙을 뺌(가짜 위반 방지) |
+| 정적 분석 | `ruff` 0.17 (`requirements.txt`). 기본 규칙(`E4`,`E7`,`E9`,`F`)만으로는 줄 길이·이름·import 순서를 못 잡으므로 `select = ["E", "W", "F", "I", "N"]`, `line-length = 88`로 설정. `E1xx`·`E2xx`·`E3xx`는 preview 규칙이라 쓰지 않음(`uvx`로 임시 실행한 ruff 0.17.4에서 확인). 에이전트 도구와 평가 diff 작성이 **같은 설정 파일(`ruff.toml`)**을 씀. 입력이 diff뿐이라 리뷰 대상 저장소의 ruff 설정은 읽지 않고 항상 이 설정을 씀. **저장소 폴더가 없으면 ruff를 `ruff.toml` 사본만 둔 빈 임시 폴더에서 돌리고 diff 경로의 최상위 폴더를 `known-first-party`로 지정**합니다(`src/tools/ruff.py`의 `_ruff_base`, round4 이후) — CiteReview 자신의 `src/` 구조가 import 정렬(I001) 판정을 바꾸지 않게. `ruff_check`는 **변경된 줄의 위반만** 돌려주고, 파일 전체가 보이지 않는 diff에서는 `F`·`I` 규칙을 뺌(가짜 위반 방지) |
 | 외부 연동 | 게시(`github_post_comment`)는 **dry-run**(콘솔 출력), 허용 목록은 `.env`의 `CITEREVIEW_ALLOWED_POST_REPOS`(쉼표 구분 `owner/repo`). PR 조회(`github_get_pr`)는 **선택 작업(C1)**으로 `langchain_mcp_adapters.client.MultiServerMCPClient` + GitHub 공식 MCP 서버(`github/github-mcp-server`, stdio)로 붙이고, 토큰은 `.env`의 `GITHUB_PERSONAL_ACCESS_TOKEN`(읽기 권한만) |
 | 평가 | RAGAS 4개 지표 (`faithfulness`, `answer_relevancy`, `context_precision`, `context_recall`). `ragas` 0.4.3은 **평가 전용 환경 `.venv-eval`(Python 3.12, `requirements-eval.txt`)**에 설치 — 과정 venv(Python 3.14)에서는 의존성 `scikit-network` 빌드가 실패함. `answer_relevancy`의 임베딩은 `amazon.titan-embed-text-v2:0` |
 | RAGAS 판정 LLM | `us.amazon.nova-pro-v1:0` (Bedrock, `us-east-1`) — **평가 전용 예외**. 리뷰 모델과 다른 모델로 자기 평가 편향을 줄임. 에이전트 본체에는 쓰지 않음 |
@@ -61,9 +61,10 @@ mini-pjt_{본인이름}/
 │   ├── retriever.py            # 제출 규약 진입점: build_retriever·load_corpus 등 재노출 → evidence/
 │   ├── shared/                 # [층 0] 여러 도메인이 쓰는 설정
 │   │   ├── config.py           #   모델·리전, .env, LLM·임베딩 생성(get_llm·get_embeddings), 경로·Chroma 상수
-│   │   └── review_settings.py  #   리뷰 한 건의 기준: 변경 한도(300, 최대 500), 저장소 ruff 설정, 재생성 횟수, C2 스위치
+│   │   └── review_settings.py  #   리뷰 한 건의 기준: 변경 한도(300, 최대 500), 저장소 ruff 설정, 재생성 횟수, C2 스위치, 실패 경로 규칙 스위치
 │   ├── findings/               # [층 1] 지적 데이터 모델
-│   │   └── schema.py           #   Evidence → Finding → Review, 요약 5줄 검사 (가드레일·보고서·리뷰가 함께 씀)
+│   │   ├── schema.py           #   Evidence → Finding → Review, 요약 5줄 검사 (가드레일·보고서·리뷰가 함께 씀)
+│   │   └── notes.py            #   참고(low) 지적 판별: 인젝션 예시·더미/가짜 표시 비밀값·개인정보 (is_note, 화면 "## 참고")
 │   ├── diff/                   # [층 1] diff 파싱
 │   │   └── parser.py           #   파일별 분리, .py 필터, 추가·삭제 줄 수, 변경 후 줄 번호, ±1 발췌, hunk
 │   ├── observability/          # [층 1] 관측
@@ -89,6 +90,7 @@ mini-pjt_{본인이름}/
 │   │   ├── team.py             #   규칙 기반 planner, create_agent 리뷰어 2종, supervisor, 보완 단계·JSON 글 파싱
 │   │   ├── summary.py          #   요약 2·3·4줄(코드), 1·5줄(LLM) 규칙 검사·대체 문장, 추천 개선안 정리
 │   │   ├── line_length.py      #   ruff 결과로 줄 길이 지적 생성
+│   │   ├── ruff_fixes.py       #   ruff 자동 수정 가능 규칙(I001·E711 등) 지적의 고치는 방법을 ruff --fix 결과로 (⑧)
 │   │   ├── prompts.py          #   리뷰어 공통 규칙·버그·스타일·supervisor, 보완 요청, 종합, 고치는 방법 재생성
 │   │   └── schema.py           #   ReviewerFindings, SummaryDraft, SuggestionFix (리뷰 흐름에서만 씀)
 │   └── interfaces/             # [층 5] 사용자 인터페이스
@@ -177,8 +179,11 @@ mini-pjt_{본인이름}/
                    파싱되면 제거(파일 일부만 보이면 유지·기록), ⑤ 줄 길이 지적은 ruff 결과로 코드가 만듦,
                    ⑥ API가 없다·제거됐다는 지적은 설치된 패키지에서 실제 import(호출이면 시그니처)로
                    확인해 되면 제거(매핑표 "제거" API는 유지), ⑦ 본문이 스스로 "실제 버그 없음"이라고
-                   결론 낸 bug·security 지적 제거, 입력 가드레일의 security 지적 병합
-                   (LLM은 ③의 재생성에만)
+                   결론 낸 bug·security 지적 제거, ⑧ ruff 자동 수정 가능 규칙(I001·E711 등) style 지적은
+                   고치는 방법을 `ruff check --fix --diff` 결과로 바꾸고 어긋난 설명은 고정 문장으로,
+                   ⑨ 이름 미정의(NameError·UnboundLocalError) 주장은 변경 후 파일을 정적 분석(ast)해
+                   사용 전에 반드시 정의되면 제거·단정 못 하면 "판단 필요" 표시로 유지,
+                   입력 가드레일의 security 지적 병합 (LLM은 ③의 재생성에만)
 → [종합]           요약 5줄 중 2·3·4줄(보안·버그, 스타일, 범위·기준)은 코드가 만들고,
                    LCEL은 1줄(변경 내용)·5줄(할 일)·추천 개선안만 씀 (SummaryDraft 스키마 검증,
                    형식 오류 시 최대 1회 재생성 후 실패, 규칙 위반 줄은 1회 재생성 후 코드 문장으로 대체)
@@ -270,16 +275,20 @@ CiteReview 자신이 deprecated API를 쓰면 안 됩니다. 아래는 **사용 
 - 근거는 세 종류만 인정합니다: **문서 청크(doc) / 도구 출력(tool) / diff 코드 위치(code)**.
 - **API 존재 주장 검증 (`src/guardrails/output.py`의 `verify_api_claims`):** bug·security 지적의 설명이 "X가 1.x에 없다·존재하지 않는다·제거됐다·import 안 된다"를 주장하면, 지적 문장과 그 줄의 코드에서 LangChain·LangGraph import 대상(호출이면 그 파일이 import한 함수와 문장에 적힌 키워드 인자)을 뽑아 **설치된 패키지에서 실제로 import·시그니처 확인**합니다. 모두 확인되면 제거하고 `trace`의 `api_claim_dropped`에 대상·패키지 버전·사유를 남깁니다. deprecated_map.md에서 "제거"인 API는 import 결과와 관계없이 유지합니다. 다른 패키지 이름은 import하지 않습니다.
 - **자기부정 지적 필터 (`src/guardrails/output.py`의 `drop_self_negated`):** 리뷰어가 낸 bug·security 지적의 본문이 결론으로 "실제 버그 없음", "실제로는 동작", 문장 끝의 "문제없습니다", "버그가 아닙니다" 등을 말하면 제거하고 `trace`의 `self_negated_dropped`에 걸린 패턴과 지적 전체를 남깁니다. 양보절("문제가 없지만 None이면 실패")과 입력 가드레일의 security 지적은 대상이 아닙니다.
-- **버그 지적의 실패 경로 (프롬프트):** bug 지적의 message에는 "어떤 입력·호출 경로에서 어떻게 실패하는지"를 반드시 쓰고, 이 diff의 코드로 구체적으로 쓸 수 없으면 지적하지 않습니다. 주석으로 의도를 밝힌 설계 선택은 bug가 아닙니다.
+- **이름 미정의 주장 검증 (`src/guardrails/output.py`의 `verify_name_claims`, ⑨):** 지적 설명이 "정의되지 않은 이름"·NameError·UnboundLocalError를 주장하면 diff로 변경 후 파일 전체를 다시 만들어 `ast`로 분석합니다. 지적이 말한 이름(백틱·`name 'X'`)을 지적 줄(없으면 ±3줄)에서 읽는 위치마다, 같은 범위의 앞선 문장이 **반드시** 정의(분기 한쪽만은 아님)하거나 매개변수·for 대상·with as가 묶거나(try는 모든 except와 본문 또는 else가 정의해야 함, try 본문 정의는 else에서 보임), 함수 안에서 쓰는 바깥 이름이 모듈에서 정의되면 "반박" → 제거하고 `trace`의 `name_claim_dropped`에 이름·지적 전체를 남깁니다. 파일 어디에도 정의가 없으면 그대로 유지(진짜 미정의), 파일 일부만 보이거나 조건부 정의라 단정할 수 없으면 설명 앞에 "판단 필요(이름 정의 여부를 코드로 확인하지 못함): "를 붙여 유지하고 `name_claim_kept`에 사유를 남깁니다.
+- **ruff 자동 수정 (`src/review/ruff_fixes.py`, ⑧):** 근거가 `ruff:<코드>`(또는 연결표의 PEP 8 섹션)이고 그 줄에 실제 ruff 위반이 있는 style 지적 중 자동 수정 가능 규칙(I001·E401·E711·E712·F401·F541·W291·W293)은 고치는 방법을 `ruff check --select <코드> --fix --unsafe-fixes --diff` 결과(앞뒤 문맥 1줄 포함)로 바꿉니다. 설명 문장에 그 규칙의 필수 낱말이 없거나 다른 ruff 코드를 말하면 고정 설명 문장으로 바꿉니다. 파일 일부만 보이면 F·I 규칙은 고치지 않습니다(ruff_check와 같은 기준). `trace`의 `ruff_fixed`에 위치·코드·설명 교체 여부를 남깁니다.
+- **버그 지적의 실패 경로 (프롬프트):** bug 지적의 message에는 "어떤 입력·호출 경로에서 어떻게 실패하는지"를 반드시 쓰고, 이 diff의 코드로 구체적으로 쓸 수 없으면 지적하지 않습니다. 주석으로 의도를 밝힌 설계 선택은 bug가 아닙니다. 이 규칙은 `review_settings.BUG_FAILURE_PATH_RULE`(기본 True)로 켜고 끌 수 있으며, 재현율 비교 실험에서만 코드로 잠시 끕니다(CLI·GUI·평가 옵션 없음, `prompts.bug_prompt()`).
 - **리뷰어의 라이브러리 판단 규칙 (프롬프트):** API 존재·제거·변경은 매핑표와 `search_evidence` 결과로만 판단하고(기억 금지, 매핑표에 없으면 존재한다고 봄), ruff로 잡히는 비교·스타일(E711·E712·N8xx·I001)은 style로만 분류합니다.
 - **파싱 실패 주장 검증:** 지적 설명이 SyntaxError·IndentationError·TabError·문법·구문 오류를 주장하면 변경 후 파일을 `ast.parse`로 검증합니다(`src/guardrails/output.py`의 `verify_syntax_claims`). 파싱되면 제거하고 `trace`의 `syntax_dropped`에 지적 전체와 사유를, 파일 일부만 보이거나 실제로 파싱이 안 되면 유지하고 `syntax_kept`에 사유를 남깁니다. 논리 버그 설명("들여쓰기 때문에 return이 루프 안에 있음")은 대상이 아닙니다.
 - 출력 검증은 근거가 **실제로 존재하는지 기계적으로 확인**합니다. 예: `code` 근거의 라인이 diff에 있는지, `doc` 근거가 이번 검색 결과에 있었는지, `tool` 근거가 이번 도구 출력에 있었는지. 제거 전후 지적 수를 `trace`에 남깁니다.
 - 비밀값·개인정보 마스킹은 **LLM 호출 전에** 실행하고, 마스킹 위치마다 `security` 지적(근거 유형 `tool`)을 만듭니다. 마스킹 표시는 `[MASKED:<패턴명>]` 형식(예: `[MASKED:aws-access-key]`, `[MASKED:email]`)으로 써서 원문은 숨기되 무엇이 있었는지는 리뷰어와 평가 판정 LLM이 알 수 있게 합니다. 출력과 실행 기록에도 원문을 남기지 않습니다.
   - 비밀값 패턴(`secret-scanner:`): AWS 키, 일반 API 키·토큰, 비밀번호 할당문 등
   - 더미 표시 비밀값: 탐지된 줄의 `#` 주석(문자열 밖)이나 바로 위 1–2줄 **주석 줄**에 더미·예시·dummy·example·test·fake·sample 표시가 있으면 secret-scanner 지적을 low "참고"로 낮춥니다(`src/guardrails/input.py`의 `_marked_dummy`, 지적·마스킹은 유지, 꼭 고칠 것·요약 제외 `is_note`). 따옴표 안의 값은 검사하지 않습니다(18번 `…EXAMPLE` 키는 high).
+  - 테스트 경로의 가짜 값 (round4 이후): 경로가 테스트(`tests/`·`test/` 폴더, `test_*.py`, `*_test.py`, `conftest.py`)이고 그 줄에서 값을 받는 **변수 이름**에 FAKE·DUMMY·EXAMPLE·SAMPLE·TEST 표시가 있으면 비밀값·개인정보 지적을 low "참고"로 낮춥니다(`src/guardrails/input.py`의 `_test_fake_value`, 마스킹은 유지). 값 자체는 검사하지 않습니다. 평가 18번(`app/` 경로)은 영향 없음.
   - 개인정보 패턴(`pii-scanner:`): 이메일, 전화번호, 주민등록번호. 예시용으로 흔히 쓰는 주소(`user@example.com` 등)는 허용 목록으로 제외해 오탐을 줄입니다.
 - 리뷰 대상은 diff 안의 **`.py` 파일만**입니다. 다른 파일(README, `pyproject.toml`, `.yaml` 등)은 건너뛰고 출력에 목록을 안내하며, `.py` 파일이 없으면 거절합니다(Java만 있으면 "아직 지원하지 않는 언어"라고 안내).
 - 변경 한도 판정은 **`.py` 파일의 추가·삭제 줄 합계**로 합니다 (diff 헤더·문맥 줄·다른 파일 제외). 한도는 **기본 300줄, 사용자 설정으로 최대 500줄**(`review_settings.MAX_LINES_CAP`)이며 우선순위는 CLI `--max-lines`·GUI 입력 > 저장소 `pyproject.toml [tool.citereview] max-lines` > 기본 300입니다. 평가 실행은 `run_query`에 설정을 넘기지 않으므로 항상 기본값입니다.
+- 저장소 폴더가 없으면(diff 파일만, 평가 포함) ruff는 **중립 임시 폴더**(CiteReview `ruff.toml` 사본)에서 돌고, diff 경로의 최상위 폴더(`app/x.py` → `app`)만 first-party로 봅니다. 평가 diff 22개의 ruff 결과는 이 변경 전후 같습니다.
 - 저장소 폴더가 주어지면(CLI `--repo-dir`, GUI 커밋 모드) 그 저장소의 ruff 설정(`ruff.toml` → `.ruff.toml` → `pyproject.toml [tool.ruff]`)으로 검사하고, 없으면 CiteReview `ruff.toml`을 씁니다(`src/shared/review_settings.py`의 `load_review_settings`). 적용 기준은 화면 맨 위 안내 줄과 요약 4줄에 보입니다. `--repo`는 GitHub 게시 대상(`owner/repo`)이라 이름을 나눴습니다.
 - 형식 오류는 **최대 1회 재생성** 후 실패로 처리합니다.
 - 게시는 HITL 승인 후에만, 허용 목록에 있는 본인 테스트 저장소에만 합니다(이번 범위는 dry-run).
@@ -293,10 +302,12 @@ CiteReview 자신이 deprecated API를 쓰면 안 됩니다. 아래는 **사용 
 - 섹션은 요약 / 잠재 버그(보안은 소제목) / 스타일 이슈 / 추천 개선안을 유지하고, 섹션 안에서는 심각도 `high` > `medium` > `low` 순으로 정렬합니다.
 - 문제 코드 발췌(문제 줄 ±1줄, 변경 후 파일 기준 줄 번호)는 렌더러가 `src/diff/parser.py`로 **diff에서 결정적으로 뽑습니다.** LLM이 코드 인용을 만들지 않으며, 마스킹 후 내용을 씁니다.
 - 근거 표시 이름: 문서 청크는 청크 메타데이터 `title`을, 도구 근거는 렌더러의 고정 이름표를 씁니다(예: `secret-scanner` → "비밀값 탐지"). 규칙 ID는 괄호로 뒤에 붙입니다.
-- 고치는 방법: `suggestion` 안에 ```` ```python ```` 블록이 있으면 문제 줄을 `-`로, 블록 내용을 `+`로 렌더링합니다. 블록이 없으면 문장으로만 보여 줍니다. `+` 줄에는 `-` 줄의 들여쓰기를 붙입니다.
+- 고치는 방법: `suggestion` 안에 ```` ```python ```` 블록이 있으면 원래 코드(문제 줄 근처, 변경 후 파일)와 블록을 **줄 단위로 비교해 바뀐 줄만 `-`/`+`**, 같은 줄은 표시 없이 보여 줍니다(round4 이후, `difflib`). 제안 줄이 지적한 줄이 아닌 다른 위치(앞뒤 40줄 안, 파일에 한 번만 나오는 줄)와 일치하면 그 위치를 기준으로 비교합니다(예: 97행 지적의 수정안이 91행 for 줄 앞 삽입). 겹치는 줄이 없으면 제안이 지적한 줄과 비슷할 때(대입 대상·첫 낱말이 같거나 글자가 절반 이상 같음)만 그 줄 `-`, 블록 `+`로 보여 주고, 아니면 **-/+ 없이 코드 블록(`|`)과 "적용 위치: N행 앞/뒤" 안내**만 보여 줍니다 — 틀린 diff는 보여 주지 않습니다(`src/report/render.py`의 `_fix_body`). 블록이 없으면 문장으로만 보여 줍니다. `+` 줄에는 원래 줄의 들여쓰기를 붙입니다.
+- 참고(low) 지적 (round4 이후): 인젝션 예시 문장·더미/가짜 표시 비밀값·개인정보(`src/findings/notes.py`의 `is_note`)는 보안 번호 목록에서 빼고 화면 끝 "## 참고"에 "파일:줄 · 종류 (패턴, …) — 안내" 한 줄로 보여 줍니다. 같은 파일·줄·종류의 여러 패턴은 한 줄로 합칩니다. 지적 수·HITL 번호·꼭 고칠 것·요약에서 빠지고, **Review JSON에는 그대로 남습니다**(평가 기준 불변). 게시 본문에는 남습니다.
 - 줄 길이(E501): 번호 붙은 지적에서 빼고 화면 끝(추천 개선안 다음, 맨 끝 요약 줄 앞) "## 참고" 두 줄로만 보여 줍니다 — "줄 길이 초과 N줄 (기준 X칸): 파일 줄번호, … / ruff format 또는 괄호 안 줄바꿈으로 정리", "(ruff:E501, PEP8-maximum-line-length, 길이는 --verbose)". 줄별 길이·코드/주석 구분은 `--verbose`에서만(trace `stage="line_length"`). 맨 끝 지적 수·다듬을 것·HITL 항목 번호에서 제외, E501만 있으면 스타일 이슈는 "(없음)", 추천 개선안의 줄 길이 항목은 최대 1개(다른 지적이 있으면 넣지 않음, `review/summary.py`의 `limit_line_length_recs`), 게시 본문도 같은 형식. **Review JSON에는 개별 지적이 그대로 남고** 평가 계산은 그 기준입니다.
 - 리뷰어 결과 없음: 리뷰어가 결과 도구도 보완 단계도 실패하면(`structured`가 none) 맨 위에 "주의: 스타일 리뷰어 결과 없음(확인 못 함)"을 표시하고, 그 리뷰어가 맡은 빈 섹션은 "(없음)" 대신 "(확인 못 함: … 결과 없음)", "문제를 찾지 못했습니다."는 쓰지 않습니다("문제 없음"과 구분). trace에는 `stage="reviewers"` 이벤트(`structured`, `none`)를 남깁니다.
 - 요약 규칙: 2·3·4줄(보안·버그, 스타일 한 줄, 범위·기준)은 코드가 지적 목록과 설정에서 만듭니다. LLM은 1줄(변경 내용, 추측·평가 금지)과 5줄(할 일, 지적 목록 안의 줄 번호만)만 쓰고, 규칙 위반이면 1회 재생성 후 그 줄만 코드 문장으로 바꿉니다(`trace`의 `stage="summary"`, `replaced`). 인젝션 "참고"(low)는 꼭 고칠 것과 요약에서 뺍니다.
+- "판단 필요" 지적 (설명이 "판단 필요"로 시작, 예: ⑨가 단정하지 못한 지적, `src/findings/notes.py`의 `is_unsure`): 꼭 고칠 것에서 빼고 **"확인 필요 N건"**으로 따로 셉니다 — 맨 위 안내 줄("꼭 고쳐야 할 것 … · 확인 필요 N건"), 요약 2줄("…꼭 고칠 것은 N건, 확인 필요는 M건입니다"), 맨 끝 지적 수("꼭 고칠 것 a · 확인 필요 u · 다듬을 것 p"). 종합 노드에는 `판단_필요: true`로 넘기고 프롬프트에서 단정형을 금지하며, 요약 5줄이 그 줄 번호를 말하면서 "확인"이 없으면 규칙 위반(재생성 1회 → 코드 문장). Review JSON은 그대로입니다.
 - 줄 길이(E501) 지적은 리뷰어가 내지 않고 출력 검증이 ruff 결과로 직접 만듭니다(숫자는 ruff 값). 리뷰어가 낸 E501은 버리고 개수를 `trace`에 남깁니다.
 - 요약의 줄 길이 숫자: 1·5줄(LLM)에서 줄 길이·E501·line-length를 언급한 문장의 "숫자+자·칸·글자" 값은 적용 기준 또는 ruff가 잰 길이여야 합니다(아니면 규칙 위반 → 1회 재생성 → 코드 문장). 적용 기준값은 요약 4줄에만 넣고 3줄(스타일)에는 넣지 않습니다. 종합 프롬프트 입력에 적용 기준을 넘깁니다.
 - `Finding.message`는 "무엇이 문제인가 + 왜 문제인가"를 한두 문장으로 씁니다. 이 규칙을 리뷰어 프롬프트에 넣습니다. 스키마에 새 필드는 추가하지 않습니다(구현 후 부족하면 다시 논의).
@@ -317,6 +328,8 @@ CiteReview 자신이 deprecated API를 쓰면 안 됩니다. 아래는 **사용 
 - **모든 요청은 Host 헤더가 `127.0.0.1:포트`·`localhost:포트`일 때만, POST(리뷰 실행·승인/거절·폴더 창·커밋 조회)는 Origin 헤더가 이 서버 자신일 때만 처리하고 아니면 403**입니다(DNS 리바인딩·다른 사이트의 요청 위조 방어, `tests/test_gui_server.py` 2건). `run.bat`은 활성화된 가상환경과 관계없이 본체 환경 Python(`..\..\.venv` → `.venv` → PATH, `.venv-eval` 제외)으로 실행합니다.
 - 디자인은 Hallmark로 하고, 대상은 **개발 도구 화면**입니다. 히어로 영역, 마케팅 문구, 구독 폼, 페이지 끝 CTA를 넣지 않습니다.
 - 결과 영역은 **고정폭 글꼴**로 렌더러 출력을 그대로 보여 주어, 줄 번호·`>` 표시·`-`/`+` 줄의 정렬을 정확히 유지합니다.
+- **선택 표시 (round4 이후):** 누른(또는 Enter) 커밋 카드는 테두리 전체를 강조색, 배경을 옅은 강조색으로 바꾸고 "✓ 선택됨" 표시와 `aria-current`를 붙입니다(선택은 하나). 500줄 초과 카드의 빨간 왼쪽 선은 그대로 남아 두 표시가 함께 보입니다. 리뷰가 도는 동안은 "● 실행 중", 끝나면(승인 대기·완료·오류) "✓ 선택됨"으로 돌아옵니다. 진행 영역의 diff 이름 옆에 커밋 해시·메시지 앞부분을 보여 줍니다. diff 파일로 리뷰하면 파일 경로 칸과 리뷰 버튼 옆에 같은 표시를 합니다.
+- **중복 실행 방지:** 리뷰 실행 중에는 다른 카드·리뷰 버튼을 눌러도 새 리뷰를 시작하지 않고, 커밋 목록 아래 안내 문구(`#busy-note`)를 강조합니다. 이전에는 실행 중에 다른 카드를 누르면 화면은 새 작업만 따라가고 이전 작업은 서버에서 계속 돌았습니다.
 
 ### 보안·저장소
 - `.env`, `chroma_db/`, `*.sqlite`, `evaluation/runs/`, `.venv-eval/`는 **커밋하지 않습니다** (`.gitignore`에 등록 완료).

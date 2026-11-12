@@ -13,17 +13,23 @@ LLM 코드 리뷰는 근거가 없어 믿고 고칠지 판단하기 어렵고, L
 
 ### 핵심 결과 한눈에
 
-> **두 기준을 나란히 적습니다.** 2차는 제출 시점(태그 `submission-round2`, 리뷰 모델 Claude Haiku 4.5), 3차 B는 다음 버전 코드(커밋 `00807f1`)를 gpt-oss-120b로 돌린 결과입니다. **리뷰 모델과 코드가 함께 바뀌어 직접 비교가 아닙니다.** 같은 Haiku로 다음 버전 코드를 돌리는 3차 A는 토큰 한도로 보류 중입니다. 자세한 원인 분석은 [round3_report.md](evaluation/round3_report.md).
+> **현재 기준은 round4**입니다: 리뷰 모델 Claude Sonnet 4.6(`us.anthropic.claude-sonnet-4-6`, Bedrock `us-west-1`), 도메인 구조로 바꾼 현재 코드(커밋 `542b0bb`). 2차 제출 결과(태그 `submission-round2`, Haiku 4.5)는 비교 행으로 남깁니다. **리뷰 모델과 코드가 함께 바뀌어 직접 비교가 아닙니다.** 자세한 내용은 [round4_report.md](evaluation/round4_report.md).
+>
+> **리뷰 모델 변경 흐름 (모두 사용자 결정):** Sonnet 4.5(과정 고정값) → Haiku 4.5(1·2차) → gpt-oss-120b(3차 B) → **Sonnet 4.6(현재)**. 앞의 모델들이 차례로 Bedrock 계정 일일 토큰 한도에 걸려 개발·평가가 막혔고, gpt-oss는 결과 도구를 건너뛰거나 JSON 글로 답하는 문제가 있어, 결과 수집이 가장 안정적인 Sonnet 4.6으로 확정했습니다(round3 비교, 아래 회고).
 
-| 항목 | 2차 (Haiku, 제출) | 3차 B (gpt-oss, 다음 버전) |
+| 항목 | **round4 (Sonnet 4.6, 현재)** | 2차 (Haiku 4.5, 제출 `submission-round2`) |
 |---|---|---|
-| 인-아웃 통과율 (본 세트 20건) | 1차 **9/20** → 정정·재채점 **15/20** → 2차 **20/20** (완성 기준 14/20) | **17/20** (실패 4·9·10) |
-| 추가 세트 (함정 케이스 21·22) | **2/2** | **1/2** (실패 22) |
-| 근거 확인 비율 (존재) | **1.0** (31 → 31) | **1.0** (31 → 31) |
-| 근거-지적 일치율 (타당) | **1.0** (8/8), C2 제거 0건 | **1.0** (4/4), C2 제거 0건 |
-| 전체 실행 시간 (22건, 동시 2개) | 1차 4분 31초 (20건, 동시 5개) → 2차 **2분 55초** | **2분 37초** |
-| 케이스당 토큰 (평균) | (기록 없음) | 입력 13,694 · 출력 1,626 · 호출 8회 |
-| RAGAS | faithfulness 0.729 · answer_relevancy 0.264 · context_precision 0.711 · context_recall 1.000 ([아래](#ragas-평가-결과)) | 미실행 |
+| 인-아웃 통과율 (본 세트 20건) | **20/20** | 20/20 (1차 9/20 → 재채점 15/20 → 2차 20/20) |
+| 추가 세트 (함정 케이스 21·22) | **1/2** (실패 22: 정렬된 import에 bug 지적) | 2/2 |
+| 근거 확인 비율 (존재) | **1.0** (30 → 30) | 1.0 (31 → 31) |
+| 근거-지적 일치율 (타당) | **0.667** (4/6), C2 제거 2건 | 1.0 (8/8), C2 제거 0건 |
+| 커밋 재리뷰 4건 bug 정밀도 | **1/5 = 0.20** (판단 필요 포함 0.40, 표본 5건) | (측정 안 함) |
+| 전체 실행 시간 (22건, 동시 2개) | 3분 30초 | 2분 55초 |
+| 케이스당 토큰 (평균, 본 세트) | 입력 36,491 · 출력 1,186 · 호출 9회 | (기록 없음) |
+| RAGAS | 전체 재테스트에서 실행 예정 | faithfulness 0.729 · answer_relevancy 0.264 · context_precision 0.711 · context_recall 1.000 ([아래](#ragas-평가-결과)) |
+
+- round4는 Sonnet의 오탐 줄이기(리뷰어 판단 규칙, 실패 경로 규칙, API 존재 주장 검증 ⑥, 자기부정 지적 필터 ⑦) 뒤의 결과입니다. round3 Sonnet(같은 모델, 이전 코드) 대비 본 세트 18 → 20, 평가셋 bug 지적 29 → 14, 재리뷰 화면 bug·security 13 → 5건입니다.
+- round4 이후 개선(이름 미정의 주장 검증 ⑨, ruff 자동 수정 ⑧, 참고 지적 섹션, ruff 중립 폴더 등)은 round4 숫자에 들어 있지 않습니다([round4_report.md 4절](evaluation/round4_report.md)).
 
 ## 활용한 패턴 (Day 1–7)
 
@@ -141,7 +147,7 @@ python -m src.interfaces.gui_server  # 브라우저가 열림 (Windows는 run.ba
 
 ## 인-아웃 세트 통과율 (자체 평가)
 
-평가셋: [evaluation/test_queries.csv](evaluation/test_queries.csv) 본 세트 20건(positive 8 / negative 4 / edge 5 / guardrail 3) + 추가 세트 2건. 리뷰 모델 1·2차 Claude Haiku 4.5, 3차 B gpt-oss-120b, 케이스마다 1회. 규칙은 [evaluation/README.md](evaluation/README.md)를 따릅니다.
+평가셋: [evaluation/test_queries.csv](evaluation/test_queries.csv) 본 세트 20건(positive 8 / negative 4 / edge 5 / guardrail 3) + 추가 세트 2건. 리뷰 모델 1·2차 Claude Haiku 4.5, 3차 B gpt-oss-120b, 3차 C·round4 Sonnet 4.6, 케이스마다 1회. 규칙은 [evaluation/README.md](evaluation/README.md)를 따릅니다.
 
 - **1차:** 9 / 20 통과 → 같은 기록을 판정기 v2와 정정된 CSV로 재채점하면 15 / 20 ([round1_report.md](evaluation/round1_report.md))
 - **2차 (개선 후):** **20 / 20** 통과, 추가 세트 2 / 2, 실행 오류 0건 ([round2_report.md](evaluation/round2_report.md))
@@ -153,6 +159,10 @@ python -m src.interfaces.gui_server  # 브라우저가 열림 (Windows는 run.ba
   - 실패 원인: 4번은 **코드**(줄 길이 지적을 코드가 만들면서 리뷰어가 `search_evidence`를 부르지 않음 — CSV `expected_tools`와 불일치), 9·22번은 **모델**의 과잉 지적, 10번은 종합 노드가 구조화 출력 대신 글로 답한 **모델** 응답 형식(코드에 대비 없음)
   - 리뷰어 결과를 받지 못한 경우(`structured` none): 리뷰어 실행 51회 중 2회, 원인은 결과를 JSON 글로 답하는 gpt-oss 습관(크기와 무관해 보임)
   - 3차 A(같은 코드 + Haiku 4.5, 핵심 7건)는 토큰 한도로 보류, `00807f1` 코드로 재실행 예정
+- **3차 C (같은 `00807f1` 코드 + Sonnet 4.6):** 18 / 20(수정 기준), 추가 세트 1 / 2 ([round3_report.md](evaluation/round3_report.md))
+- **round4 (현재 코드 `542b0bb` + Sonnet 4.6, 현재 기준):** **20 / 20**, 추가 세트 1 / 2(22번), 실행 오류 0건, structured none 0 ([round4_report.md](evaluation/round4_report.md))
+  - C에서 실패한 9번(`create_agent`가 없다는 오탐)·17번(E711을 bug로도 지적)이 통과. 근거-지적 일치율 0.364 → 0.667
+  - 커밋 재리뷰 4건의 bug 정밀도 0.15 → 0.20(표본 5건이라 경향으로만). 남은 오탐은 "이런 값으로 호출되면" 같은 가정형 경로
 
 ## 트라이앤에러 회고
 
@@ -172,6 +182,8 @@ python -m src.interfaces.gui_server  # 브라우저가 열림 (Windows는 run.ba
 - **RAGAS는 Python 3.12 평가 전용 환경:** 과정 venv(Python 3.14)에서 `scikit-network` 휠이 없어 설치가 실패했기 때문입니다.
 
 ### 남은 한계
+- **(round4) 가정형 경로 오탐:** Sonnet은 이 diff의 코드에 없는 입력("빈 목록으로 호출되면", "필드가 문자열이면")을 실패 경로로 적은 bug를 냅니다. 프롬프트 규칙으로 줄었지만 남았고, 결정적으로 거르려던 "high bug는 다른 줄 근거 필수" 규칙은 제거된 API·같은 줄 None 버그 같은 맞는 지적까지 낮춰 철회했습니다.
+- **(round4) 재현율:** round3에서 타당하던 day07 94행 지적(None id)이 round4 이후 10회 실행에서 한 번도 나오지 않았습니다. 실패 경로 규칙을 끈 실행에서도 나오지 않아 원인은 확정하지 못했고, 평가셋에는 이런 케이스가 없어 재현율을 따로 재지 못합니다.
 - **같은 평가셋으로 실패를 보고 고쳤습니다.** 2차 20/20은 처음 보는 코드에서의 성능을 보장하지 않습니다. 평가셋 밖 확인은 추가 세트 21·22(2/2)와 본인 실습 저장소 PR 시연뿐이라 건수가 적습니다.
 - **문제없는 diff에서 요약이 근거 없는 평가성 문장을 씁니다**(11번 faithfulness 0.294). 2차 결과를 제출 코드 기준으로 두려고 이번에는 고치지 않았습니다.
 - **승인 안내 문구:** 무단 게시는 코드로 막지만, 답변이 "게시는 승인 후에만 가능하다"고 안내하지는 않습니다(20번 보조 항목).

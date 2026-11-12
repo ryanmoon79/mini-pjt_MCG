@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from langchain_core.prompts import ChatPromptTemplate
 
+from src.shared import review_settings
+
 _COMMON_RULES = """\
 ## 지적 유형(issue_type) 분류 규칙 (SERVICE.md 1번)
 - bug: 실행 결과나 동작이 틀려지는 문제
@@ -66,6 +68,17 @@ _COMMON_RULES = """\
 """
 
 
+# 버그 리뷰어의 "실패 경로" 규칙 (round4 준비). review_settings.BUG_FAILURE_PATH_RULE이
+# False면 bug_prompt()가 이 규칙을 뺀 프롬프트를 돌려줍니다(재현율 비교 실험용).
+FAILURE_PATH_RULE = """\
+- **bug 지적의 message에는 "어떤 입력·호출 경로에서 어떻게 실패하는지"를 반드시
+  씁니다** (예: "`items`가 빈 리스트로 들어오면 15행 `items[0]`에서 IndexError").
+  그런 실패 경로를 이 diff의 코드로 구체적으로 쓸 수 없으면 지적하지 않습니다.
+  추론하다가 "실제로는 동작한다", "버그 없음"이라는 결론이 나오면 그 지적은 내지
+  않습니다(추론 과정을 message에 적지 않음). 주석으로 의도를 밝힌 설계 선택은 bug가
+  아닙니다.
+"""
+
 BUG_PROMPT = f"""당신은 LangChain/LangGraph 1.x Python 코드 리뷰어
 (버그·보안 담당)입니다.
 변경된 코드에서 bug와 security 지적을 찾습니다. 스타일 문제는 다루지 않습니다.
@@ -73,18 +86,20 @@ BUG_PROMPT = f"""당신은 LangChain/LangGraph 1.x Python 코드 리뷰어
   langchain.retrievers, langchain.chains 등) import가 보이면
   search_evidence로 매핑표를 찾아 doc 근거로 인용하고, 제거된 API면 bug로 지적합니다.
 - 논리 버그(None 처리, 경계값, 빈 입력 등)는 code 근거로 지적합니다.
-- **bug 지적의 message에는 "어떤 입력·호출 경로에서 어떻게 실패하는지"를 반드시
-  씁니다** (예: "`items`가 빈 리스트로 들어오면 15행 `items[0]`에서 IndexError").
-  그런 실패 경로를 이 diff의 코드로 구체적으로 쓸 수 없으면 지적하지 않습니다.
-  추론하다가 "실제로는 동작한다", "버그 없음"이라는 결론이 나오면 그 지적은 내지
-  않습니다(추론 과정을 message에 적지 않음). 주석으로 의도를 밝힌 설계 선택은 bug가
-  아닙니다.
+{FAILURE_PATH_RULE}\
 - 검증 없는 eval·exec, shell=True subprocess 같은 위험은 security로 지적합니다.
 - 예외 처리(빈 except, 삼킨 예외, 실패 시 None을 그대로 쓰는 코드)를 확인합니다.
 - **논리 버그, deprecated API, 예외 처리, 보안에 집중합니다.** 줄 길이·포맷 같은
   스타일은 지적하지 않습니다.
 
 {_COMMON_RULES}"""
+
+
+def bug_prompt() -> str:
+    """버그 리뷰어 시스템 프롬프트 (실패 경로 규칙은 설정 스위치를 따름)."""
+    if review_settings.BUG_FAILURE_PATH_RULE:
+        return BUG_PROMPT
+    return BUG_PROMPT.replace(FAILURE_PATH_RULE, "", 1)
 
 
 STYLE_PROMPT = f"""당신은 LangChain/LangGraph 1.x Python 코드 리뷰어(스타일 담당)입니다.
@@ -149,6 +164,10 @@ SYNTH_PROMPT = ChatPromptTemplate.from_messages(
             "줄 번호는 "
             "지적 목록에 있는 줄만 씁니다. 꼭 고칠 것(high·medium)이 없으면 "
             "'꼭 고쳐야 할 것은 없습니다.'라고 씁니다. 평가성 문장은 쓰지 않습니다.\n"
+            "- 지적 목록에서 '판단_필요'가 true인(설명이 '판단 필요'로 시작하는) "
+            "지적은 꼭 고칠 것이 아닙니다. action·recommendations에서 다룰 때는 "
+            "'~가 발생하므로 ~해야 합니다' 같은 단정형으로 쓰지 말고 "
+            "'~인지 확인하세요'처럼 확인할 일로만 씁니다.\n"
             "- recommendations: 1~3개. security·bug를 먼저, 지적 목록 범위 안에서만.\n"
             "- change·action·recommendations는 모두 **한국어** 문장으로 씁니다 "
             "(코드·API·파일 이름은 그대로).\n"

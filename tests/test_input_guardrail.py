@@ -50,7 +50,7 @@ def test_case19_injection_stays_medium():
 
 def test_quoted_or_pattern_example_is_low_note():
     """따옴표·정규식 패턴·탐지 주석 안의 예시, 부르는 말 없는 명령문은 low 참고."""
-    from src.guardrails.input import is_injection_note
+    from src.findings.notes import is_injection_note
 
     result = check_input(
         _diff(
@@ -107,7 +107,7 @@ def test_dummy_comment_above_lowers_to_note():
     꼭 고칠 것과 요약 2줄에서 빠지고, 마스킹은 그대로다. 같은 줄 주석도 인정하지만
     코드 줄 문자열 속 표시(위 줄이 코드)는 인정하지 않는다.
     """
-    from src.guardrails.input import is_note
+    from src.findings.notes import is_note
     from src.review.summary import _must, secbug_line
 
     result = check_input(
@@ -127,3 +127,38 @@ def test_dummy_comment_above_lowers_to_note():
     assert all(is_note(by_line[n]) and not _must(by_line[n]) for n in (3, 4))
     assert secbug_line([by_line[3], by_line[4]]) == "보안·버그 지적은 없습니다."
     assert _DUMMY_TOKEN not in result.masked_diff()  # 마스킹은 그대로
+
+
+# ── round4 이후: 테스트 경로의 가짜 값 이름 ─────────────────────────────────
+
+
+def _diff_at(path: str, *added: str) -> str:
+    body = "".join(f"+{line}\n" for line in added)
+    return (
+        f"diff --git a/{path} b/{path}\n--- /dev/null\n+++ b/{path}\n"
+        f"@@ -0,0 +1,{len(added)} @@\n{body}"
+    )
+
+
+def test_fake_named_value_in_test_path_is_note():
+    """tests/ 안이고 변수 이름에 FAKE 등이 있으면 비밀값·개인정보 지적을 low 참고로.
+
+    값은 그대로 마스킹하고, 앱 경로나 표시 없는 이름은 원래 등급(high·medium)이다.
+    """
+    from src.findings.notes import is_note
+
+    email = "hong.gildong@citereview-dummy.kr"
+    test = check_input(
+        _diff_at(
+            "tests/test_app.py",
+            f'FAKE_EMAIL = "{email}"',
+            f'AWS_KEY = "{_EXAMPLE_KEY}"',
+        )
+    )
+    by_line = {f.line: f for f in test.findings}
+    assert by_line[1].severity == "low" and is_note(by_line[1])
+    assert "테스트 경로의 가짜 값" in by_line[1].message
+    assert by_line[2].severity == "high"  # 표시 없는 이름은 그대로
+    assert email not in test.masked_diff()  # 마스킹은 그대로
+    app = check_input(_diff_at("app/settings.py", f'FAKE_EMAIL = "{email}"'))
+    assert [f.severity for f in app.findings] == ["medium"]  # 앱 경로는 그대로

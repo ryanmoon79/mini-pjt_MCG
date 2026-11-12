@@ -29,10 +29,10 @@ from src.findings.schema import Finding
 from src.guardrails.middleware import mask_messages, masking_middleware
 from src.observability.usage import ROLE_KEY
 from src.review.prompts import (
-    BUG_PROMPT,
     FINALIZE_REQUEST,
     STYLE_PROMPT,
     SUPERVISOR_PROMPT,
+    bug_prompt,
 )
 from src.review.schema import ReviewerFindings
 
@@ -73,7 +73,7 @@ def plan_reviews(py_files: list[dp.FileDiff]) -> Plan:
 
 def build_reviewer(model, tools: list, name: str):
     """create_agent로 리뷰어 하나를 만듭니다 (구조화 출력 + 호출 횟수 제한)."""
-    prompt = BUG_PROMPT if name == BUG else STYLE_PROMPT
+    prompt = bug_prompt() if name == BUG else STYLE_PROMPT
     return create_agent(
         model=model,
         tools=tools,

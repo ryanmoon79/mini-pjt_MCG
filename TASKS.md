@@ -121,7 +121,22 @@ GUI 규칙은 [CLAUDE.md](CLAUDE.md) 6번 "GUI"를 따릅니다. 에이전트·C
   - [x] 사용자 판단 반영 (2026-11-12): 6번 15행 예외 처리 지적은 타당 → 금지 항목 "X로 분류"를 traits 근거 ID 겹침 기준으로 좁힘(`run_eval.classified_as`, CSV 그대로; 기존→수정 점수 A 12→13/14, C 본 세트 17→18/20, 2차·B 변화 없음). 버그 후보 확인표는 모두 동의 → 정밀도 2/13 ≈ 0.15(판단 필요 포함 3/13). 확인: `test_classified_as_counts_only_the_traits_issue`.
   - [x] 자기부정 지적 필터(출력 검증 ⑦, `guardrails/output.py`의 `drop_self_negated`): 저장된 기록에서 day07 113행·day05 567행 제거, day06 327행은 결론형이 아니라 남음, 평가 기록 전체에서 잘못 제거 0건. trace `self_negated_dropped`, `run_eval` summary `self_negated`. 확인: `test_self_negated_findings_are_dropped`, `test_concession_or_style_is_not_treated_as_self_negation`.
   - [x] 버그 리뷰어 프롬프트: bug 지적에는 실패하는 입력·경로를 반드시 쓰고, 못 쓰면 지적하지 않음, 주석으로 밝힌 설계 선택은 bug 아님.
-  - [ ] round4 실행(사용자 확인 후): 최종 코드 + Sonnet으로 22건 + 커밋 재리뷰 4건, C와 비교 → `evaluation/round4_report.md`.
+  - [x] round4 실행: 커밋 `542b0bb` + Sonnet으로 22건 + 커밋 재리뷰 4건, C와 비교 → `evaluation/round4_report.md` (결론은 사용자 판단 후).
+- [x] **round4 이후 개선** (f8e0c93 자체 리뷰에서 나온 것, round4 결과와 섞지 않음 — `round4_report.md` 4절)
+  - 출력 검증 ⑨ 이름 미정의 주장 검증(`guardrails/output.py`의 `verify_name_claims`): 정적 분석(ast)으로 반박되면 제거(trace `name_claim_dropped`), 단정 못 하면 "판단 필요" 표시로 유지(`name_claim_kept`). `run_eval` summary `name_claim`. 확인: `test_name_claim_dropped_when_defined_before_use`(recs·모듈 상수), `test_name_claim_kept_when_truly_undefined_or_unsure`, `test_name_claim_on_partial_file_is_marked_unsure`, `test_name_claim_drop_is_traced_in_graph`. 저장된 round4 day03 기록에 적용하면 260행(`MAX_TOOL_CALLS`) 제거.
+  - 고치는 방법 렌더링: 원래 코드와 줄 단위 비교, 바뀐 줄만 -/+ (`report/render.py`의 `_fix_body`). 확인: `test_fix_marks_only_changed_lines`.
+  - 출력 검증 ⑧ ruff 자동 수정(`review/ruff_fixes.py`, `tools/ruff.py`의 `ruff_fix_blocks`): I001·E711 등은 `ruff check --fix --diff` 결과, 어긋난 설명은 고정 문장. trace `ruff_fixed`, summary `ruff_fix`. 확인: `test_ruff_fixable_style_uses_ruff_fix_and_fixed_message`.
+  - 참고(low) 지적을 "## 참고"로(`findings/notes.py`), 같은 줄은 한 줄, 지적 수·HITL 번호 제외, Review JSON 그대로. 확인: `test_notes_move_to_note_section_grouped_by_line`.
+  - 테스트 경로 + 변수 이름 FAKE·DUMMY·EXAMPLE·SAMPLE·TEST → 비밀값·개인정보 low 참고(`guardrails/input.py`의 `_test_fake_value`). 확인: `test_fake_named_value_in_test_path_is_note`, 평가 18번 등급 그대로.
+  - 동작 확인(1차): 테스트 79건·ruff 0건, 가짜 모델 22건의 코드 판정·지적 목록·화면이 변경 전과 같음, f8e0c93 Sonnet 재리뷰 비교(4절).
+  - [x] ruff 중립 폴더 (사용자 결정으로 이번에 고침): 저장소 폴더가 없으면 ruff를 `ruff.toml` 사본만 둔 빈 임시 폴더에서 돌리고 diff 경로 최상위 폴더를 known-first-party로(`tools/ruff.py`의 `_ruff_base`). f8e0c93 tests/test_agent.py 955행 가짜 I001 해소. 확인: 평가 diff 22개 ruff 결과 전후 동일(16번 I001 포함), `test_ruff_ignores_citereview_own_modules_without_repo_dir`.
+  - [x] ⑩ high bug 근거 규칙(다른 줄 code 근거 없으면 medium + 판단 필요) — 시도 후 **철회**(사용자 결정): 저장된 round4 기록에서 high 12건(평가 11·재리뷰 1)이 내려갔고 제거된 API·같은 줄 None 버그 같은 맞는 지적이 대부분. 코드·프롬프트·테스트 되돌림(프롬프트는 542b0bb와 같음).
+  - [x] day07 94행 재현(3회 0/3)과 실패 경로 규칙 있음/없음 비교(각 3회, 94행 0/3·0/3): 규칙 탓 근거 없음, 원인 미확정. 스위치 `review_settings.BUG_FAILURE_PATH_RULE`(기본 True). 규칙은 유지(사용자 결정).
+  - [x] ⑨ 보완: `try/except/else` 안 모든 경로 정의, try 본문 정의 → else 사용을 "정의됨"으로(실험의 day07 113행). 확인: `test_name_claim_dropped_when_every_try_branch_defines_it`.
+  - [x] 재테스트 전 보강 테스트 5건: 종합 형식 오류 2회 → 실패, validate_test_queries, run_eval ⑧⑨ 요약, 승인 + 허용 목록 dry-run 본문, GUI 진행 표시 trace 복사. 테스트 86건.
+  - [x] 542b0bb 자기 리뷰에서 나온 2건: ① 고치는 방법 적용 위치(제안 줄이 다른 위치와 맞으면 그 위치 기준, 못 맞추면 코드 블록 + "적용 위치" 안내, 틀린 diff 금지) — `test_fix_is_placed_where_suggestion_lines_match`, `test_fix_without_matching_place_is_shown_as_block_with_location`. ② "판단 필요" 지적은 "확인 필요 N건"으로 따로 집계, 요약 5줄 단정형 금지 — `test_unsure_findings_are_counted_as_checks_not_must_fix`. Review JSON·판정 그대로.
+  - [x] GUI 커밋 카드 선택·실행 중 표시(`interfaces/gui_server.py` 화면만): 선택 테두리·배경·"선택됨"/"실행 중" 표시·`aria-current`, 초과 카드 빨간 선과 함께 보임, 진행 영역에 커밋 해시·메시지, 실행 중 다른 카드·리뷰 버튼 잠금(중복 실행 방지)과 안내, diff 파일 선택 표시. 확인: 테스트 90건, 가짜 모델 22건 출력 전체 동일, 헤드리스 Chrome 스크린샷 7장(라이트·다크, 일반·초과 선택, 실행 중 → 완료, 파일 선택).
+  - [ ] 전체 재테스트 ①–⑥ (pytest → 가짜 모델 22건 → Sonnet 22건 → 커밋 재리뷰 5건 → RAGAS → 직접 확인).
 - [x] **round3 이후 ② JSON 글 응답 파싱** — 리뷰어 답·보완 답이 JSON 글이면 파싱(`agent_text`·`finalize_text`), 모두 실패할 때만 none. 확인: `test_reviewer_json_text_is_parsed_without_extra_call`, `test_finalize_json_text_is_parsed_and_only_garbage_is_none`. 종합 노드 글 응답(10번)은 범위 밖, 결정 대기.
 - [x] **round3 이후 ③ 줄 길이 화면 간략화** — "## 참고" 두 줄, 상세는 --verbose, 건수·HITL 번호 제외, 추천 개선안 줄 길이 최대 1개, Review JSON은 그대로. 확인: `test_line_length_is_a_short_note_not_numbered_items` 외 3건, 4·14·15·17번 실제 실행(참고 줄로 판정 항목 통과, 17번은 2차 시도).
   - 기준 시점: 2차 제출은 태그 `submission-round2`(커밋 `7d2400c`), 다음 버전은 main (submission-round2 태그 이후).

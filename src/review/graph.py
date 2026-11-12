@@ -49,6 +49,7 @@ from src.guardrails.output import (
     strip_classic_sentences,
     strip_classic_sentences_keep_code,
     verify_api_claims,
+    verify_name_claims,
     verify_syntax_claims,
 )
 from src.guardrails.schema import InputCheck
@@ -64,6 +65,7 @@ from src.report.render import (
 )
 from src.review.line_length import _LINE_TOO_LONG_RE, line_length_findings
 from src.review.prompts import FIX_PROMPT, SYNTH_DIFF_CHARS, SYNTH_PROMPT
+from src.review.ruff_fixes import apply_ruff_fixes
 from src.review.schema import SuggestionFix, SummaryDraft
 from src.review.summary import (
     action_fallback,
@@ -368,6 +370,11 @@ def build_graph(ctx: RunContext, checkpointer=None):
         kept, syntax_dropped, syntax_kept = verify_syntax_claims(
             kept, ctx.check.py_files
         )
+        # ⑨ 이름 미정의(NameError 등)를 주장하는 지적은 변경 후 파일을 정적 분석해
+        # 사용 전에 반드시 정의되면 제거, 단정할 수 없으면 "판단 필요"를 붙여 유지
+        kept, name_claim_dropped, name_claim_kept = verify_name_claims(
+            kept, ctx.check.py_files
+        )
         # ⑥ API가 없다·제거됐다는 지적은 설치된 패키지에서 실제 import로 확인해,
         # import되면 제거 (매핑표의 "제거" API는 유지). C2처럼 따로 보고.
         kept, api_claim_dropped = verify_api_claims(kept, ctx.check.py_files)
@@ -376,6 +383,11 @@ def build_graph(ctx: RunContext, checkpointer=None):
         kept, self_negated_dropped = drop_self_negated(kept)
         # 입력 가드레일의 security 지적은 가드레일이 직접 만든 것이라 그대로 둠
         kept = [_fix_forbidden_suggestion(f) for f in kept]
+        # ⑧ ruff가 자동으로 고칠 수 있는 style 지적(I001·E711 등)은 고치는 방법을
+        # `ruff check --fix --diff` 결과로 바꾸고, 어긋난 설명은 고정 문장으로 바꿈
+        kept, ruff_fixed = apply_ruff_fixes(
+            kept, ctx.check.py_files, ruff_all, ctx.settings
+        )
         # ③ 줄 길이(E501)는 리뷰어 지적 대신 ruff 결과로 코드가 만듦 (숫자도 ruff 값)
         doc = _pep8_line_length_chunk()
         if doc and any(r["code"] == "E501" for r in ruff_all):
@@ -418,10 +430,15 @@ def build_graph(ctx: RunContext, checkpointer=None):
             # 검증 불가·실제 파싱 실패로 유지한 지적
             syntax_dropped=syntax_dropped,
             syntax_kept=syntax_kept,
+            # ⑨ 이름 미정의 주장 검증: 제거(지적 전체)·판단 필요로 유지한 지적
+            name_claim_dropped=name_claim_dropped,
+            name_claim_kept=name_claim_kept,
             # ⑥ API 존재 주장 검증: import되는데 없다고 한 지적(대상·패키지 버전·전체)
             api_claim_dropped=api_claim_dropped,
             # ⑦ 자기부정 지적: 걸린 패턴 이름·지적 전체
             self_negated_dropped=self_negated_dropped,
+            # ⑧ ruff 자동 수정으로 고치는 방법을 바꾼 지적(설명 교체 여부 포함)
+            ruff_fixed=ruff_fixed,
             line_length_by_code=len(long_lines),  # ruff로 코드가 만든 줄 길이 지적
             reviewer_line_length_dropped=len(replaced),  # 리뷰어가 낸 줄 길이 지적
         )
@@ -595,14 +612,15 @@ def build_graph(ctx: RunContext, checkpointer=None):
             ignore = set(decision.get("ignore", []))
             # 화면 번호는 표시 항목 단위
             # (E501 묶음 번호를 빼면 그 파일의 E501 전부 제외)
-            # 화면 번호는 번호 붙은 지적만. 줄 길이(E501)는 번호가 없는 "참고"라
-            # 무시 대상이 아니고 게시 본문에도 같은 "## 참고"로 그대로 남음
-            kept = [
-                f
+            # 화면 번호는 번호 붙은 지적만. 줄 길이(E501)·참고(low) 지적은 번호가 없는
+            # "## 참고"라 무시 대상이 아니고 게시 본문에도 그대로 남음
+            ignored = {
+                id(f)
                 for i, item in enumerate(ordered_items(ctx.review), 1)
-                if i not in ignore
+                if i in ignore
                 for f in item
-            ] + line_length_of(ctx.review)
+            }
+            kept = [f for f in ctx.review.findings if id(f) not in ignored]
             body = render_review(
                 ctx.review.model_copy(update={"findings": kept}),
                 ctx.check.py_files,

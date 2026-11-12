@@ -25,6 +25,12 @@ MAX_FORMAT_RETRIES = 1  # 출력 형식 오류 시 재생성 횟수
 PEP8_CROSS_CHECK = True
 
 
+# 버그 리뷰어 프롬프트의 "실패 경로" 규칙(round4 준비, 커밋 542b0bb)을 넣을지.
+# 기본은 넣음. 재현율 비교 실험(round4 이후, day07 규칙 있음/없음)에서만 코드로
+# 잠시 False로 바꿔 돌립니다 — 평가·CLI·GUI에는 옵션을 두지 않습니다.
+BUG_FAILURE_PATH_RULE = True
+
+
 # ── 리뷰 설정: 변경 줄 수 한도와 ruff 기준 (저장소 설정 따르기) ─────────────
 
 

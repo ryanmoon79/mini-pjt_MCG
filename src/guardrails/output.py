@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 
 from src.diff import parser as dp
@@ -559,3 +560,353 @@ def drop_self_negated(findings: list[Finding]) -> tuple[list[Finding], list[dict
             }
         )
     return kept, dropped
+
+
+# ── 출력 검사: 이름 미정의 주장 검증 (round4 이후, f8e0c93 재리뷰의 NameError 오탐) ──
+
+# "정의되지 않은 이름"·NameError·UnboundLocalError를 주장하는 표현
+NAME_CLAIM_RE = re.compile(
+    r"NameError|UnboundLocalError|정의되지\s*않|미정의|is not defined|undefined name",
+    re.IGNORECASE,
+)
+_BACKTICK_NAME_RE = re.compile(r"`([A-Za-z_]\w*)`")
+_QUOTED_NAME_RE = re.compile(r"name '([A-Za-z_]\w*)'")
+
+NAME_UNSURE_PREFIX = "판단 필요(이름 정의 여부를 코드로 확인하지 못함): "
+
+
+def claims_undefined_name(finding: Finding) -> bool:
+    """지적 설명(message)이 이름 미정의(NameError 등)를 주장하는지."""
+    return bool(NAME_CLAIM_RE.search(finding.message))
+
+
+def _target_names(node) -> set[str]:
+    """대입 대상(Name·Tuple·List·Starred)에서 이름을 모읍니다."""
+    if isinstance(node, ast.Name):
+        return {node.id}
+    if isinstance(node, ast.Starred):
+        return _target_names(node.value)
+    if isinstance(node, (ast.Tuple, ast.List)):
+        out: set[str] = set()
+        for e in node.elts:
+            out |= _target_names(e)
+        return out
+    return set()
+
+
+def _walrus_names(node) -> set[str]:
+    """식 안의 `:=` 대입 이름 (중첩 함수·람다 안은 제외)."""
+    out: set[str] = set()
+    stack = [node]
+    while stack:
+        n = stack.pop()
+        if isinstance(n, ast.NamedExpr):
+            out |= _target_names(n.target)
+        if isinstance(n, (ast.Lambda, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        stack.extend(ast.iter_child_nodes(n))
+    return out
+
+
+def _import_names(stmt) -> set[str]:
+    """import 문이 묶는 이름 (`import *`는 제외)."""
+    return {(a.asname or a.name.split(".")[0]) for a in stmt.names if a.name != "*"}
+
+
+def _with_names(stmt) -> set[str]:
+    """with 문의 `as` 대상 이름."""
+    out: set[str] = set()
+    for i in stmt.items:
+        if i.optional_vars is not None:
+            out |= _target_names(i.optional_vars)
+    return out
+
+
+def _binds(stmt, name: str) -> bool:
+    """문장 하나가 실행되면 `name`이 **반드시** 묶이는지 (분기 한쪽만이면 False)."""
+
+    def any_binds(body: list) -> bool:
+        return any(_binds(s, name) for s in body)
+
+    if isinstance(stmt, ast.Assign):
+        return any(name in _target_names(t) for t in stmt.targets) or (
+            name in _walrus_names(stmt.value)
+        )
+    if isinstance(stmt, ast.AnnAssign):
+        return stmt.value is not None and name in _target_names(stmt.target)
+    if isinstance(stmt, (ast.Import, ast.ImportFrom)):
+        return name in _import_names(stmt)
+    if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return stmt.name == name
+    if isinstance(stmt, (ast.With, ast.AsyncWith)):
+        return name in _with_names(stmt) or any_binds(stmt.body)
+    if isinstance(stmt, ast.If):
+        return name in _walrus_names(stmt.test) or (
+            bool(stmt.orelse) and any_binds(stmt.body) and any_binds(stmt.orelse)
+        )
+    if isinstance(stmt, ast.Try):
+        if any_binds(stmt.finalbody):
+            return True
+        # 예외가 없으면 body 다음 else가 실행되므로 둘 중 하나가 묶고, 모든 except가
+        # 묶어야 함 (day07 113행: try/except/else 안 모든 경로에서 status·detail 정의)
+        main_path = any_binds(stmt.body) or any_binds(stmt.orelse)
+        return main_path and all(any_binds(h.body) for h in stmt.handlers)
+    if isinstance(stmt, ast.Expr):
+        return name in _walrus_names(stmt.value)
+    return False
+
+
+def _header_binds(parent, field: str, name: str) -> bool:
+    """감싸는 문장의 머리(for 대상·with as·except as·조건의 :=)가 `name`을 묶는지."""
+    if isinstance(parent, (ast.For, ast.AsyncFor)) and field == "body":
+        return name in _target_names(parent.target)
+    if isinstance(parent, (ast.With, ast.AsyncWith)) and field == "body":
+        return name in _with_names(parent)
+    if isinstance(parent, ast.ExceptHandler):
+        return parent.name == name
+    if isinstance(parent, ast.Try) and field == "orelse":
+        # else는 try 본문이 예외 없이 끝났을 때만 실행됨
+        return any(_binds(s, name) for s in parent.body)
+    if isinstance(parent, (ast.If, ast.While)) and field != "test":
+        return name in _walrus_names(parent.test)
+    return False
+
+
+def _parents(tree) -> dict:
+    """노드 → (부모, 필드 이름, 목록 안 위치 또는 None) 대응표."""
+    out = {}
+    for parent in ast.walk(tree):
+        for field, value in ast.iter_fields(parent):
+            if isinstance(value, list):
+                for i, child in enumerate(value):
+                    if isinstance(child, ast.AST):
+                        out[child] = (parent, field, i)
+            elif isinstance(value, ast.AST):
+                out[value] = (parent, field, None)
+    return out
+
+
+def _dominated(use, name: str, parents: dict, stop) -> bool:
+    """`use`에 오기 전에 `name`이 반드시 묶이는지 (`stop` 노드까지 거슬러 올라감).
+
+    같은 문장 목록의 앞선 형제 문장이 반드시 묶거나(`_binds`), 감싸는 문장의
+    머리가 묶으면 True입니다.
+    """
+    node = use
+    while node in parents and node is not stop:
+        parent, field, index = parents[node]
+        if index is not None:
+            siblings = getattr(parent, field)
+            if any(_binds(s, name) for s in siblings[:index]):
+                return True
+        if _header_binds(parent, field, name):
+            return True
+        node = parent
+    return False
+
+
+_FUNC_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+_COMPS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+
+
+def _scope_of(node, parents: dict):
+    """`node`를 감싸는 가장 안쪽 함수·람다 (없으면 None = 모듈)."""
+    while node in parents:
+        node = parents[node][0]
+        if isinstance(node, _FUNC_SCOPES):
+            return node
+    return None
+
+
+def _scope_bindings(scope) -> tuple[set[str], set[str], set[str]]:
+    """함수 범위의 (지역 이름, 매개변수, global·nonlocal 선언) — 중첩 범위 안은 제외."""
+    args = scope.args
+    every = [*args.posonlyargs, *args.args, *args.kwonlyargs]
+    every += [x for x in (args.vararg, args.kwarg) if x]
+    params = {a.arg for a in every}
+    local: set[str] = set()
+    declared: set[str] = set()
+    stack = list(scope.body) if isinstance(scope.body, list) else [scope.body]
+    while stack:
+        n = stack.pop()
+        if isinstance(n, (ast.Global, ast.Nonlocal)):
+            declared |= set(n.names)
+        elif isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
+            local.add(n.id)
+        elif isinstance(n, (ast.Import, ast.ImportFrom)):
+            local |= _import_names(n)
+        elif isinstance(n, ast.ExceptHandler) and n.name:
+            local.add(n.name)
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            local.add(n.name)
+            continue  # 중첩 범위의 본문은 그 범위에서 따로 봄
+        if isinstance(n, (ast.Lambda, *_COMPS)):
+            continue
+        stack.extend(ast.iter_child_nodes(n))
+    return local - declared, params, declared
+
+
+def _comprehension_binds(use, name: str, parents: dict) -> bool:
+    """`use`를 감싸는 컴프리헨션의 for 대상이 `name`인지."""
+    node = use
+    while node in parents:
+        node = parents[node][0]
+        if isinstance(node, _FUNC_SCOPES):
+            return False
+        if isinstance(node, _COMPS) and any(
+            name in _target_names(g.target) for g in node.generators
+        ):
+            return True
+    return False
+
+
+def _module_names(tree) -> set[str]:
+    """파일 어디에서든(조건부 포함) 묶이는 이름 전체."""
+    out: set[str] = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
+            out.add(n.id)
+        elif isinstance(n, (ast.Import, ast.ImportFrom)):
+            out |= _import_names(n)
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            out.add(n.name)
+        elif isinstance(n, ast.arg):
+            out.add(n.arg)
+        elif isinstance(n, ast.ExceptHandler) and n.name:
+            out.add(n.name)
+    return out
+
+
+def _name_status(tree, use, name: str, parents: dict) -> str:
+    """이름을 읽는 위치 하나의 판정.
+
+    "bound"(반드시 정의됨) · "undefined"(파일 어디에도 정의 없음) ·
+    "unsure"(조건부 정의 등 코드로 단정 못 함).
+    """
+    import builtins
+
+    if _comprehension_binds(use, name, parents):
+        return "bound"
+    scope = _scope_of(use, parents)
+    deferred = False  # 함수 안의 사용: 바깥 이름은 호출 시점에 찾음
+    while scope is not None:
+        local, params, declared = _scope_bindings(scope)
+        if name in declared:
+            break  # global·nonlocal 선언 → 모듈 기준으로 확인
+        if name in params:
+            return "bound"
+        if name in local:
+            if not deferred:
+                bound = _dominated(use, name, parents, scope)
+            else:
+                body = scope.body if isinstance(scope.body, list) else []
+                bound = any(_binds(s, name) for s in body)
+            return "bound" if bound else "unsure"
+        deferred = True
+        use, scope = scope, _scope_of(scope, parents)
+    if any(
+        isinstance(n, ast.ImportFrom) and any(a.name == "*" for a in n.names)
+        for n in ast.walk(tree)
+    ):
+        return "unsure"  # `import *`가 무엇을 들여오는지 모름
+    if deferred and any(_binds(s, name) for s in tree.body):
+        return "bound"
+    if not deferred and _dominated(use, name, parents, tree):
+        return "bound"
+    if hasattr(builtins, name) or name in {"__name__", "__file__", "__doc__"}:
+        return "bound"
+    return "unsure" if name in _module_names(tree) else "undefined"
+
+
+def _claimed_uses(tree, finding: Finding) -> dict[str, list]:
+    """지적이 말하는 이름(백틱·`name 'X'`)과, 지적 줄(없으면 ±3줄)에서 읽는 위치."""
+    names = set(_BACKTICK_NAME_RE.findall(finding.message))
+    names |= set(_QUOTED_NAME_RE.findall(finding.message))
+    loads = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load) and n.id in names
+    ]
+    out: dict[str, list] = {}
+    for name in names:
+        mine = [n for n in loads if n.id == name]
+        exact = [n for n in mine if n.lineno == finding.line]
+        near = [n for n in mine if abs(n.lineno - finding.line) <= 3]
+        if exact or near:
+            out[name] = exact or near
+    return out
+
+
+def _claim_statuses(source: str, finding: Finding) -> tuple[dict[str, str], str]:
+    """파일 전체 소스에서 지적이 말한 이름별 판정과, 판정 못 한 사유."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return {}, "변경 후 파일이 파싱되지 않음"
+    parents = _parents(tree)
+    uses = _claimed_uses(tree, finding)
+    if not uses:
+        return {}, "지적 줄 근처에서 주장한 이름을 찾지 못함"
+    statuses = {}
+    for name, nodes in uses.items():
+        found = {_name_status(tree, n, name, parents) for n in nodes}
+        for status in ("undefined", "unsure", "bound"):
+            if status in found:
+                statuses[name] = status
+                break
+    return statuses, ""
+
+
+def verify_name_claims(
+    findings: list[Finding], py_files: list[dp.FileDiff]
+) -> tuple[list[Finding], list[dict], list[dict]]:
+    """이름 미정의(NameError·UnboundLocalError 등)를 주장하는 지적을 정적 분석으로 검증.
+
+    결정적 검사입니다(LLM 없음). diff로 변경 후 파일 전체를 다시 만들어 `ast`로
+    분석하고, 지적이 말한 이름을 지적 줄 근처에서 읽는 위치마다 판정합니다.
+    - 같은 범위의 앞선 문장이 반드시 정의하거나(분기 한쪽만은 아님), 매개변수·
+      for 대상·with as 등이 묶거나, 함수 안에서 쓰는 바깥 이름이 모듈에서 반드시
+      정의되면 "bound" → 말한 이름이 모두 bound면 주장이 사실이 아니므로 **제거**.
+    - 파일 어디에도 정의가 없으면 "undefined" → 지적을 그대로 둡니다(진짜 미정의).
+    - 파일 일부만 보이거나, 파싱이 안 되거나, 이름을 못 찾거나, 조건부 정의라
+      단정할 수 없으면 지적을 남기되 설명 앞에 "판단 필요"를 붙입니다.
+
+    Returns:
+        (유지할 지적, 제거 기록 `name_claim_dropped`, 판단 필요 기록 `name_claim_kept`)
+    """
+    from src.tools.ruff import reconstruct_file
+
+    by_path = {f.path: f for f in py_files}
+    kept, dropped, unsure = [], [], []
+    for f in findings:
+        target = by_path.get(f.file)
+        if not claims_undefined_name(f) or target is None:
+            kept.append(f)
+            continue
+        where = {"file": f.file, "line": f.line, "issue_type": f.issue_type}
+        source, complete = reconstruct_file(target)
+        if complete:
+            statuses, reason = _claim_statuses(source, f)
+        else:
+            statuses, reason = {}, "파일 일부만 보여 이름 정의를 확인할 수 없음"
+        if statuses and all(s == "bound" for s in statuses.values()):
+            dropped.append(
+                {
+                    **where,
+                    "severity": f.severity,
+                    "names": sorted(statuses),
+                    "reason": "이름이 사용 전에 반드시 정의됨 (정적 분석)",
+                    "finding": f.model_dump(),
+                }
+            )
+            continue
+        if "undefined" in statuses.values():
+            kept.append(f)  # 진짜 미정의 이름: 표시 없이 유지
+            continue
+        reason = reason or "조건부 정의 등으로 코드로 단정할 수 없음"
+        unsure.append({**where, "names": sorted(statuses), "reason": reason})
+        message = f.message
+        if not message.startswith(NAME_UNSURE_PREFIX):
+            message = NAME_UNSURE_PREFIX + message
+        kept.append(f.model_copy(update={"message": message}))
+    return kept, dropped, unsure

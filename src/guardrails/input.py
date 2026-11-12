@@ -180,13 +180,6 @@ def injection_grade(text: str, span: tuple[int, int]) -> str:
     return "addressed" if INJECTION_ADDRESSEE.search(text) else "example"
 
 
-def is_injection_note(finding: Finding) -> bool:
-    """참고(low) 등급의 인젝션 지적인지 (꼭 고칠 것·요약에서 제외할 대상)."""
-    return finding.severity == "low" and any(
-        (e.rule_id or "").startswith("injection-scanner:") for e in finding.evidence
-    )
-
-
 def _scanner_finding(scanner: str, name: str, file: str, line: int) -> Finding:
     return Finding(
         issue_type="security",
@@ -262,6 +255,20 @@ def check_input(diff_text: str, max_lines: int | None = None) -> InputCheck:
                                     "suggestion": DUMMY_SECRET_SUGGESTION,
                                 }
                             )
+                        # 테스트 경로의 가짜 값: 변수 이름에 FAKE 등 표시 (값은 안 봄)
+                        elif _test_fake_value(f.path, ln.text):
+                            kind = (
+                                "비밀값" if scanner == "secret-scanner" else "개인정보"
+                            )
+                            hit = hit.model_copy(
+                                update={
+                                    "severity": "low",
+                                    "message": TEST_FAKE_MESSAGE.format(
+                                        kind=kind, name=name
+                                    ),
+                                    "suggestion": TEST_FAKE_SUGGESTION,
+                                }
+                            )
                         result.findings.append(hit)
     return result
 
@@ -285,6 +292,34 @@ DUMMY_SECRET_SUGGESTION = (
     "진짜 키라면 바로 폐기·교체하고 환경변수로 옮기세요. 더미라도 키 형식의 값은 "
     "환경변수나 테스트 픽스처로 분리하는 편이 안전합니다."
 )
+
+
+# ── 테스트 경로의 가짜 값 (round4 이후 — f8e0c93 리뷰의 tests/ 가짜 이메일) ─────
+
+# 테스트 파일 경로: tests/·test/ 폴더, test_*.py, *_test.py, conftest.py
+TEST_PATH_RE = re.compile(
+    r"(^|/)tests?/|(^|/)test_[^/]*\.py$|_test\.py$|(^|/)conftest\.py$"
+)
+# 값을 받는 변수 이름의 가짜 표시 (값 자체는 보지 않음)
+FAKE_NAME_RE = re.compile(r"FAKE|DUMMY|EXAMPLE|SAMPLE|TEST", re.IGNORECASE)
+_ASSIGN_NAME_RE = re.compile(r"^\s*([A-Za-z_][\w.]*)\s*(?::[^=]*)?=(?!=)")
+TEST_FAKE_MESSAGE = (
+    "참고: 테스트 경로의 가짜 값으로 표시된 {kind}({name})입니다. 변수 이름에 "
+    "FAKE·DUMMY 같은 표시가 있어 꼭 고칠 것에서 뺐지만, 도구는 진짜 값인지 확인하지 "
+    "못합니다."
+)
+TEST_FAKE_SUGGESTION = (
+    "진짜 값이라면 바로 지우고 교체하세요. 테스트용이라도 실제 형식의 값은 "
+    "example.com 주소나 명백한 가짜 값으로 바꾸는 편이 안전합니다."
+)
+
+
+def _test_fake_value(path: str, text: str) -> bool:
+    """테스트 경로의 파일이고, 그 줄에서 값을 받는 변수 이름에 가짜 표시가 있는지."""
+    if not TEST_PATH_RE.search(path):
+        return False
+    m = _ASSIGN_NAME_RE.match(text)
+    return bool(m and FAKE_NAME_RE.search(m.group(1)))
 
 
 def _comment_part(text: str) -> str:
@@ -327,18 +362,3 @@ def _marked_dummy(hunk, line) -> bool:
         if DUMMY_MARK_RE.search(stripped):
             return True
     return False
-
-
-def is_dummy_secret_note(finding: Finding) -> bool:
-    """더미로 표시된 비밀값 "참고"(low)인지 (secret-scanner는 원래 high)."""
-    return finding.severity == "low" and any(
-        (e.rule_id or "").startswith("secret-scanner:") for e in finding.evidence
-    )
-
-
-def is_note(finding: Finding) -> bool:
-    """참고 등급 지적인지 (인젝션 예시 문장·더미 표시 비밀값).
-
-    꼭 고칠 것과 요약에서 제외합니다.
-    """
-    return is_injection_note(finding) or is_dummy_secret_note(finding)

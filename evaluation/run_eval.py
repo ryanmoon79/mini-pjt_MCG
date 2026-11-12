@@ -703,6 +703,36 @@ def api_claim_summary(results: list[tuple[dict, dict, dict]]) -> dict:
     return {"dropped": sum(len(v) for v in by_case.values()), "by_case": by_case}
 
 
+def name_claim_summary(results: list[tuple[dict, dict, dict]]) -> dict:
+    """출력 검증 ⑨(이름 미정의 주장 검증)의 제거 수·판단 필요 수와 케이스별 이름."""
+    dropped, unsure = {}, {}
+    for c, o, _ in results:
+        ev = _output_event(o["trace"]) or {}
+        for key, out in (("name_claim_dropped", dropped), ("name_claim_kept", unsure)):
+            rows = ev.get(key) or []
+            if rows:
+                out[c["id"]] = [{"line": r["line"], "names": r["names"]} for r in rows]
+    return {
+        "dropped": sum(len(v) for v in dropped.values()),
+        "unsure": sum(len(v) for v in unsure.values()),
+        "dropped_by_case": dropped,
+        "unsure_by_case": unsure,
+    }
+
+
+def ruff_fix_summary(results: list[tuple[dict, dict, dict]]) -> dict:
+    """출력 검증 ⑧(ruff 자동 수정)으로 고치는 방법을 바꾼 지적 수와 설명 교체 수."""
+    rows = [
+        r
+        for _, o, _ in results
+        for r in (_output_event(o["trace"]) or {}).get("ruff_fixed") or []
+    ]
+    return {
+        "fixed": len(rows),
+        "message_replaced": sum(1 for r in rows if r["message_replaced"]),
+    }
+
+
 def evidence_counts(trace: list[dict]) -> tuple[int, int]:
     """(출력 검증 통과 지적 수, 출력 검증 전 지적 수)."""
     ev = _output_event(trace)
@@ -837,6 +867,9 @@ def set_summary(results: list[tuple[dict, dict, dict]]) -> dict:
         "api_claim": api_claim_summary(results),
         # 출력 검증 ⑦: 본문이 스스로 문제없다고 결론 낸 지적 제거 수
         "self_negated": self_negated_summary(results),
+        # 출력 검증 ⑧·⑨ (round4 이후): ruff 자동 수정, 이름 미정의 주장 검증
+        "ruff_fix": ruff_fix_summary(results),
+        "name_claim": name_claim_summary(results),
     }
 
 

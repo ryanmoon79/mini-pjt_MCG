@@ -155,7 +155,8 @@ def test_long_fix_is_truncated_to_five_lines():
     files = dp.parse_diff(
         (config.EVAL_DIFFS_DIR / "03_llmchain.diff").read_text(encoding="utf-8")
     )
-    code = "\n".join(f"line_{i} = {i}" for i in range(8))
+    # 12행(import)을 고친 긴 제안: 첫 낱말 from이 같아 -/+ 표시
+    code = "\n".join(f"from langchain_core.x{i} import A{i}" for i in range(8))
     review = Review(
         summary=[f"요약 {i}" for i in range(1, 6)],
         findings=[
@@ -213,14 +214,18 @@ def test_fix_plus_lines_take_indent_of_minus_line():
                 "severity": "high",
                 "message": "m",
                 "evidence": [{"type": "code", "source": "app/chain.py:24"}],
-                "suggestion": "```python\n        if x:\n            y = 1\n```",
+                # 지적한 줄을 고친 제안 (대입 대상 model이 같음)
+                "suggestion": "```python\n        model = model_id or DEFAULT_MODEL\n"
+                "        if not model:\n            raise ValueError\n```",
             }
         ],
     )
     lines = render_review(review, files, title="t").splitlines()
     assert f"     - {original.rstrip()}" in lines
-    assert "     +     if x:" in lines  # LLM이 준 8칸은 걷어 내고 원래 줄의 4칸
-    assert "     +         y = 1" in lines  # 상대 들여쓰기(4칸) 유지
+    # LLM이 준 8칸은 걷어 내고 원래 줄의 4칸
+    assert "     +     model = model_id or DEFAULT_MODEL" in lines
+    assert "     +     if not model:" in lines
+    assert "     +         raise ValueError" in lines  # 상대 들여쓰기(4칸) 유지
 
 
 def test_line_length_is_a_short_note_not_numbered_items():
@@ -273,3 +278,184 @@ def test_only_line_length_leaves_style_section_empty():
     assert style.startswith("(없음)")
     assert "줄 길이 초과 1줄 (기준 ?칸): app/chain.py 24" in text
     assert "지적 0건 (꼭 고칠 것 0 · 다듬을 것 0)" in text
+
+
+# ── round4 이후: 고치는 방법 줄 비교 · 참고 지적 섹션 ───────────────────────
+
+
+def test_fix_marks_only_changed_lines():
+    """제안이 앞뒤 문맥 줄까지 다시 적으면 같은 줄은 표시 없이, 바뀐 줄만 -/+."""
+    files = _files_03()
+    lines = dp.new_side_lines(files[0])
+    code = "\n".join(
+        [lines[23].strip(), "model = model_id or DEFAULT_MODEL", lines[25].strip()]
+    )
+    review = Review(
+        summary=[f"요약 {i}" for i in range(1, 6)],
+        findings=[
+            {
+                "issue_type": "bug",
+                "file": "app/chain.py",
+                "line": 24,
+                "severity": "high",
+                "message": "m",
+                "evidence": [{"type": "code", "source": "app/chain.py:24"}],
+                "suggestion": f"```python\n{code}\n```",
+            }
+        ],
+    )
+    out = render_review(review, files, title="t").splitlines()
+    fix = out[out.index("   고치는 방법:") + 1 :][:4]
+    assert fix == [
+        f"       {lines[23].rstrip()}",
+        f"     - {lines[24].rstrip()}",
+        "     +     model = model_id or DEFAULT_MODEL",
+        f"       {lines[25].rstrip()}",
+    ]
+
+
+def _note(line, rule_id):
+    return {
+        "issue_type": "security",
+        "file": "app/chain.py",
+        "line": line,
+        "severity": "low",
+        "message": "참고: 인젝션 예시 문장입니다.",
+        "evidence": [{"type": "tool", "source": "injection", "rule_id": rule_id}],
+        "suggestion": "s",
+    }
+
+
+def test_notes_move_to_note_section_grouped_by_line():
+    """low 참고 지적은 보안 번호 목록이 아니라 "## 참고"에, 같은 줄은 한 줄로.
+
+    지적 수·HITL 번호에서 빠지고, Review JSON에는 그대로 남는다.
+    """
+    from src.report.render import ordered_items
+
+    files = _files_03()
+    review = Review(
+        summary=[f"요약 {i}" for i in range(1, 6)],
+        findings=[
+            _note(5, "injection-scanner:ignore-instructions"),
+            _note(5, "injection-scanner:claim-no-issues"),
+            _style(17, ["ruff:E711"]),
+        ],
+    )
+    text = render_review(review, files, title="t")
+    security = text.split("### 보안\n\n", 1)[1].split("### 버그", 1)[0]
+    assert security.strip() == "(없음)"
+    note = text.split("## 참고\n", 1)[1].splitlines()
+    assert note[0] == (
+        "app/chain.py:5 · 인젝션 예시 문장 (ignore-instructions, claim-no-issues)"
+        " — 리뷰 도구를 향한 지시로 판정하지 않음"
+    )
+    assert "지적 1건 (꼭 고칠 것 0 · 다듬을 것 1)" in text
+    assert [len(it) for it in ordered_items(review)] == [1]
+    assert len(review.findings) == 3
+
+
+# ── 고치는 방법 적용 위치 (542b0bb 자기 리뷰) ─────────────────────────────
+
+
+RUN_CASE = [  # 542b0bb evaluation/run_eval.py 86–97행 구조 (교육용 더미 코드)
+    "def run_case(case, retries=3):",
+    "    for attempt in range(retries):",
+    "        out = run_query(case)",
+    "        if not is_exec_error(out):",
+    "            return out",
+    "        time.sleep(20 * (attempt + 1))",
+    "    return out",
+]
+
+
+def _run_case_review(suggestion: str):
+    body = "".join(f"+{line}\n" for line in RUN_CASE)
+    files = dp.parse_diff(
+        "diff --git a/app/run.py b/app/run.py\n--- /dev/null\n+++ b/app/run.py\n"
+        f"@@ -0,0 +1,{len(RUN_CASE)} @@\n{body}"
+    )
+    review = Review(
+        summary=[f"요약 {i}" for i in range(1, 6)],
+        findings=[
+            {
+                "issue_type": "bug",
+                "file": "app/run.py",
+                "line": 7,
+                "severity": "medium",
+                "message": "retries가 0이면 out이 정의되지 않습니다.",
+                "evidence": [{"type": "code", "source": "app/run.py:7"}],
+                "suggestion": suggestion,
+            }
+        ],
+    )
+    out = render_review(review, files, title="t").splitlines()
+    return out[out.index("   고치는 방법:") + 1 :][:3]
+
+
+def test_fix_is_placed_where_suggestion_lines_match():
+    """지적은 return 줄이지만 수정안이 for 줄 앞 삽입이면 for 줄 기준으로 표시.
+
+    return 줄을 지우고 for 줄을 더하는 틀린 diff가 나오면 안 된다.
+    """
+    fix = _run_case_review("```python\nout = None\nfor attempt in range(retries):\n```")
+    assert fix == [
+        "     +     out = None",
+        "           for attempt in range(retries):",
+        "",
+    ]
+
+
+def test_fix_without_matching_place_is_shown_as_block_with_location():
+    """위치를 맞출 수 없고 지적한 줄과도 다르면 -/+ 없이 코드 블록과 적용 위치 안내."""
+    fix = _run_case_review("```python\nif retries < 1:\n    raise ValueError\n```")
+    assert fix == [
+        "     적용 위치: 7행 앞/뒤 (자동으로 맞추지 못함 — 직접 확인)",
+        "     | if retries < 1:",
+        "     |     raise ValueError",
+    ]
+
+
+def test_fix_is_not_anchored_on_punctuation_only_line():
+    """`),`처럼 기호만 있는 줄 하나가 맞는다고 그 위치에 넣지 않는다.
+
+    542b0bb 재리뷰: 519행을 여러 줄로 바꾸는 제안이 518행 `),`에 맞춰져, 위 패턴의
+    괄호 앞에 새 줄을 넣는 틀린 diff가 나왔다 → 지적한 줄을 고친 제안으로 표시.
+    """
+    code = [
+        "PATTERNS = {",
+        '    "a": re.compile(',
+        '        r"x$"',
+        "    ),",
+        '    "b": re.compile(r"y$"),',
+        "}",
+    ]
+    body = "".join(f"+{line}\n" for line in code)
+    files = dp.parse_diff(
+        "diff --git a/app/p.py b/app/p.py\n--- /dev/null\n+++ b/app/p.py\n"
+        f"@@ -0,0 +1,{len(code)} @@\n{body}"
+    )
+    review = Review(
+        summary=[f"요약 {i}" for i in range(1, 6)],
+        findings=[
+            {
+                "issue_type": "bug",
+                "file": "app/p.py",
+                "line": 5,
+                "severity": "medium",
+                "message": "m",
+                "evidence": [{"type": "code", "source": "app/p.py:5"}],
+                "suggestion": '```python\n"b": re.compile(\n    r"y$",\n'
+                "    re.MULTILINE,\n),\n```",
+            }
+        ],
+    )
+    out = render_review(review, files, title="t").splitlines()
+    fix = out[out.index("   고치는 방법:") + 1 :][:5]
+    assert fix == [
+        '     -     "b": re.compile(r"y$"),',
+        '     +     "b": re.compile(',
+        '     +         r"y$",',
+        "     +         re.MULTILINE,",
+        "     +     ),",
+    ]

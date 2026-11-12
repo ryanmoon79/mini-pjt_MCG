@@ -1156,3 +1156,383 @@ def test_concession_or_style_is_not_treated_as_self_negation():
     style = _negated("이름 규칙 외에는 문제가 없습니다.", issue_type="style")
     kept, dropped = drop_self_negated([concession, style])
     assert kept == [concession, style] and dropped == []
+
+
+# ── round4 이후: 이름 미정의 주장 검증(⑨) · ruff 자동 수정(⑧) ────────────────
+
+# f8e0c93 재리뷰의 오탐 구조: `recs`가 if 블록 밖(함수 본문 8칸)에서 정의되는데
+# if 블록 안에서만 정의된다며 NameError를 주장 (교육용 더미 코드)
+NAME_FILE = [
+    "LIMIT = 3",
+    "",
+    "",
+    "def synthesize(draft, problems):",
+    "    if draft is None:",
+    "        return None",
+    "    change = draft.strip()",
+    '    if "change" in problems:',
+    '        change = "대체"',
+    "    recs = [r for r in problems if r]",
+    "    if recs:",
+    "        recs = recs[:LIMIT]",
+    "    return change, recs, missing_name",
+    "",
+    "",
+    "def maybe(flag):",
+    "    if flag:",
+    "        value = 1",
+    "    return value",
+]
+
+
+def _name_files():
+    from src.guardrails.input import check_input
+
+    body = "".join(f"+{line}\n" for line in NAME_FILE)
+    return check_input(
+        "diff --git a/app/n.py b/app/n.py\n--- /dev/null\n+++ b/app/n.py\n"
+        f"@@ -0,0 +1,{len(NAME_FILE)} @@\n{body}"
+    ).py_files
+
+
+def _name_claim(line, message):
+    from src.findings.schema import Finding
+
+    return Finding(
+        issue_type="bug",
+        file="app/n.py",
+        line=line,
+        severity="high",
+        message=message,
+        evidence=[{"type": "code", "source": f"app/n.py:{line}"}],
+        suggestion="s",
+    )
+
+
+def test_name_claim_dropped_when_defined_before_use():
+    """사용 전에 반드시 정의된 이름의 NameError 주장은 제거 (f8e0c93 recs 케이스).
+
+    함수 안에서 쓰는 모듈 상수(round4 day03 260행 `MAX_TOOL_CALLS` 구조)도 제거.
+    """
+    from src.guardrails.output import verify_name_claims
+
+    recs = _name_claim(
+        13,
+        "`recs`는 `if recs:` 블록 안에서만 정의되므로 블록을 건너뛰면 "
+        "`NameError`가 납니다.",
+    )
+    const = _name_claim(
+        12, "`LIMIT`이 함수보다 먼저 정의되지 않아 호출 시 NameError가 납니다."
+    )
+    kept, dropped, unsure = verify_name_claims([recs, const], _name_files())
+    assert kept == [] and unsure == []
+    assert [(d["line"], d["names"]) for d in dropped] == [
+        (13, ["recs"]),
+        (12, ["LIMIT"]),
+    ]
+    assert dropped[0]["finding"]["message"] == recs.message
+
+
+def test_name_claim_kept_when_truly_undefined_or_unsure():
+    """어디에도 없는 이름은 그대로 유지, 조건부 정의는 "판단 필요"를 붙여 유지."""
+    from src.guardrails.output import NAME_UNSURE_PREFIX, verify_name_claims
+
+    missing = _name_claim(13, "`missing_name`이 정의되지 않아 NameError가 납니다.")
+    cond = _name_claim(19, "`value`는 flag가 거짓이면 UnboundLocalError가 납니다.")
+    other = _name_claim(13, "반환값 순서가 문서와 다릅니다.")  # 주장 아님
+    kept, dropped, unsure = verify_name_claims([missing, cond, other], _name_files())
+    assert dropped == []
+    assert kept[0] == missing and kept[2] == other
+    assert kept[1].message == NAME_UNSURE_PREFIX + cond.message
+    assert [(u["line"], u["names"]) for u in unsure] == [(19, ["value"])]
+
+
+def test_name_claim_on_partial_file_is_marked_unsure():
+    """파일 일부만 보이면 분석하지 않고 "판단 필요"로 유지한다."""
+    from src.guardrails.input import check_input
+    from src.guardrails.output import NAME_UNSURE_PREFIX, verify_name_claims
+
+    partial = check_input(
+        "diff --git a/app/n.py b/app/n.py\n--- a/app/n.py\n+++ b/app/n.py\n"
+        "@@ -10,2 +10,3 @@\n     y = 2\n+    z = y\n     return z\n"
+    ).py_files
+    kept, dropped, unsure = verify_name_claims(
+        [_name_claim(11, "`y`가 정의되지 않았습니다.")], partial
+    )
+    assert dropped == [] and kept[0].message.startswith(NAME_UNSURE_PREFIX)
+    assert unsure[0]["reason"] == "파일 일부만 보여 이름 정의를 확인할 수 없음"
+
+
+def test_name_claim_drop_is_traced_in_graph(retriever):
+    """그래프 출력 검증이 name_claim_dropped를 trace에 남기고 지적을 뺀다."""
+    claim = {
+        "issue_type": "bug",
+        "file": "app/chain.py",
+        "line": 22,
+        "severity": "high",
+        "message": "`LLMChain`이 정의되지 않아 NameError가 납니다.",
+        "evidence": [{"type": "code", "source": "app/chain.py:22"}],
+        "suggestion": "s",
+    }
+    out = run_query(
+        "data/eval_diffs/03_llmchain.diff 를 리뷰해줘",
+        llm=_models([claim]),
+        retriever=retriever,
+    )
+    ev = next(e for e in out["trace"] if e.get("stage") == "output")
+    assert [(d["line"], d["names"]) for d in ev["name_claim_dropped"]] == [
+        (22, ["LLMChain"])
+    ]
+    review = next(e["review"] for e in out["trace"] if e["type"] == "review")
+    assert all(f["line"] != 22 or f["issue_type"] != "bug" for f in review["findings"])
+
+
+def _ruff_style(line, rule_id, message, suggestion="LLM 제안"):
+    from src.findings.schema import Finding
+
+    return Finding(
+        issue_type="style",
+        file="app/utils.py",
+        line=line,
+        severity="low",
+        message=message,
+        evidence=[{"type": "tool", "source": "ruff", "rule_id": rule_id}],
+        suggestion=suggestion,
+    )
+
+
+def test_ruff_fixable_style_uses_ruff_fix_and_fixed_message():
+    """I001 지적의 고치는 방법은 ruff 수정 결과, 어긋난 설명은 고정 문장으로 (⑧)."""
+    from src.diff import parser as dp
+    from src.review.ruff_fixes import FIXABLE, apply_ruff_fixes
+    from src.tools.ruff import run_ruff
+
+    text = (config.EVAL_DIFFS_DIR / "06_naming_imports.diff").read_text(
+        encoding="utf-8"
+    )
+    files = [f for f in dp.parse_diff(text) if f.path.endswith(".py")]
+    ruff_all = [r for f in files for r in run_ruff(f)]
+    line = next(r["line"] for r in ruff_all if r["code"] == "I001")
+    path = files[0].path
+    good = _ruff_style(line, "ruff:I001", "import 순서가 정렬되지 않았습니다.")
+    wrong = _ruff_style(line, "ruff:I001", "E401: 한 줄에 여러 import가 있습니다.")
+    good, wrong = (f.model_copy(update={"file": path}) for f in (good, wrong))
+    out, log = apply_ruff_fixes([good, wrong], files, ruff_all)
+    assert "\nimport json\nimport os\nfrom pathlib import Path\n" in out[0].suggestion
+    assert out[0].message == good.message  # 맞는 설명은 그대로
+    assert out[1].message == FIXABLE["I001"][0]  # 다른 코드를 말하면 고정 문장
+    assert [x["message_replaced"] for x in log] == [False, True]
+
+
+# ── round4 이후 2차: ruff 중립 폴더 ──────────────
+
+
+def test_ruff_ignores_citereview_own_modules_without_repo_dir():
+    """저장소 폴더가 없으면 ruff를 중립 폴더에서 돌려 CiteReview 자신의 `src/`가
+    import 정렬 판정에 끼지 않는다 (f8e0c93 재리뷰의 가짜 I001)."""
+    from src.guardrails.input import check_input
+    from src.tools.ruff import run_ruff
+
+    body = (
+        "+def test_x():\n"
+        "+    from src.agent import resume_review\n"
+        "+    from src.render import render_verbose\n"
+        "+\n"
+        "+    return resume_review, render_verbose\n"
+    )
+    files = check_input(
+        "diff --git a/tests/t.py b/tests/t.py\n--- /dev/null\n+++ b/tests/t.py\n"
+        f"@@ -0,0 +1,5 @@\n{body}"
+    ).py_files
+    assert [r["code"] for r in run_ruff(files[0])] == []
+
+
+# ── 재테스트 전 보강: 종합 실패 · 평가 스크립트 · dry-run 본문 ─────────────────
+
+
+def test_synthesizer_format_error_twice_fails_the_review(retriever):
+    """종합 노드가 형식 오류를 두 번(첫 호출 + 재생성 1회) 내면 status failed."""
+    models = _models([])
+    models["synthesizer"] = fake("요약입니다.", "여전히 글입니다.")  # 구조화 출력 없음
+    out = run_query(
+        "data/eval_diffs/03_llmchain.diff 를 리뷰해줘", llm=models, retriever=retriever
+    )
+    formats = [e for e in out["trace"] if e.get("stage") == "format"]
+    assert [e["attempt"] for e in formats] == [1, 2]
+    assert "출력 형식 오류가 재생성 후에도 남아" in out["answer"]
+    assert not [e for e in out["trace"] if e["type"] == "review"]
+    assert not [e for e in out["trace"] if e["type"] == "hitl"]  # 게시 단계도 없음
+
+
+def test_validate_test_queries_passes_on_current_csv(capsys):
+    """evaluation/validate_test_queries.py가 현재 CSV(22건)를 통과시킨다."""
+    import importlib.util
+
+    path = config.ROOT_DIR / "evaluation" / "validate_test_queries.py"
+    spec = importlib.util.spec_from_file_location("validate_for_test", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.main() == 0, capsys.readouterr().out
+
+
+def test_ruff_fix_and_name_claim_summaries():
+    """run_eval 요약: ⑧ ruff 수정·설명 교체 수, ⑨ 제거·판단 필요 수와 케이스별 이름."""
+    run_eval = _load_run_eval_module()
+
+    def result(cid, **fields):
+        trace = [{"type": "guardrail", "stage": "output", **fields}]
+        return ({"id": cid}, {"trace": trace}, {})
+
+    results = [
+        result(
+            "6",
+            ruff_fixed=[
+                {"file": "a.py", "line": 2, "code": "I001", "message_replaced": False},
+                {"file": "a.py", "line": 9, "code": "E711", "message_replaced": True},
+            ],
+            name_claim_dropped=[{"line": 13, "names": ["recs"], "reason": "r"}],
+        ),
+        result("7", name_claim_kept=[{"line": 19, "names": ["value"], "reason": "r"}]),
+        result("8"),
+    ]
+    assert run_eval.ruff_fix_summary(results) == {"fixed": 2, "message_replaced": 1}
+    assert run_eval.name_claim_summary(results) == {
+        "dropped": 1,
+        "unsure": 1,
+        "dropped_by_case": {"6": [{"line": 13, "names": ["recs"]}]},
+        "unsure_by_case": {"7": [{"line": 19, "names": ["value"]}]},
+    }
+
+
+def test_approved_post_to_allowed_repo_returns_dry_run_body(monkeypatch, retriever):
+    """승인 + 허용 목록 저장소: 게시 본문을 돌려주기만 하고(dry-run), 무시한 번호는
+    본문에서 빠진다. trace의 post 이벤트에는 본문을 남기지 않는다."""
+    from src.review.graph import resume_review
+
+    monkeypatch.setenv("CITEREVIEW_ALLOWED_POST_REPOS", "me/practice-repo")
+    bug = {
+        "issue_type": "bug",
+        "file": "app/chain.py",
+        "line": 24,
+        "severity": "medium",
+        "message": "SUMMARY_MODEL이 비어 있으면 빈 모델 ID로 호출됩니다.",
+        "evidence": [{"type": "code", "source": "app/chain.py:24"}],
+        "suggestion": "기본값을 검사하세요.",
+    }
+
+    def waiting_thread():
+        out = run_query(
+            "data/eval_diffs/03_llmchain.diff 를 리뷰해줘",
+            llm=_models([bug]),
+            retriever=retriever,
+        )
+        hitl = next(e for e in out["trace"] if e["type"] == "hitl")
+        return hitl["thread_id"]
+
+    kept = resume_review(
+        waiting_thread(), {"action": "approve", "repo": "me/practice-repo"}
+    )
+    post = kept["post"]
+    assert post["status"] == "posted" and post["dry_run"] is True
+    assert post["repo"] == "me/practice-repo"
+    assert "## 요약" in post["body"] and bug["message"] in post["body"]
+    event = next(e for e in kept["trace"] if e["type"] == "post")
+    assert "body" not in event and event["dry_run"] is True
+    ignored = resume_review(
+        waiting_thread(),
+        {"action": "approve", "repo": "me/practice-repo", "ignore": [1]},
+    )
+    assert bug["message"] not in ignored["post"]["body"]
+
+
+def test_name_claim_dropped_when_every_try_branch_defines_it():
+    """try/except/else의 모든 경로(except마다, 예외 없으면 else)에서 정의되면 제거.
+
+    round4 이후 day07 규칙 비교 실험의 113행 지적 구조 (교육용 더미 코드).
+    """
+    from src.guardrails.input import check_input
+    from src.guardrails.output import verify_name_claims
+
+    code = [
+        "def run(items, answer_fn, judge):",
+        "    for item in items:",
+        "        try:",
+        "            answer = answer_fn(item)",
+        "        except Exception:",
+        "            status, detail = 'ERROR', 'answer'",
+        "        else:",
+        "            try:",
+        "                ok = judge(item, answer)",
+        "            except Exception:",
+        "                status, detail = 'ERROR', 'judge'",
+        "            else:",
+        "                status = 'PASS' if ok else 'FAIL'",
+        "                detail = ''",
+        "        print(status, detail)",
+    ]
+    body = "".join(f"+{line}\n" for line in code)
+    files = check_input(
+        "diff --git a/app/n.py b/app/n.py\n--- /dev/null\n+++ b/app/n.py\n"
+        f"@@ -0,0 +1,{len(code)} @@\n{body}"
+    ).py_files
+    claims = [
+        _name_claim(15, "`detail`이 정의되지 않은 채 쓰일 수 있습니다."),
+        _name_claim(13, "`ok`가 정의되지 않았을 수 있습니다."),  # try 본문 → else
+    ]
+    kept, dropped, unsure = verify_name_claims(claims, files)
+    assert kept == [] and unsure == []
+    assert [(d["line"], d["names"]) for d in dropped] == [
+        (15, ["detail"]),
+        (13, ["ok"]),
+    ]
+
+
+def test_unsure_findings_are_counted_as_checks_not_must_fix():
+    """ "판단 필요" 지적은 꼭 고칠 것에서 빠지고 "확인 필요"로 따로 센다.
+
+    맨 위 안내 줄·요약 2줄·맨 끝 지적 수에 반영되고, 요약 5줄(LLM)이 그 줄을
+    단정형으로 쓰면 규칙 위반(재생성·대체 흐름)이다. Review JSON은 그대로다.
+    """
+    from src.diff import parser as dp
+    from src.findings.schema import Finding, Review
+    from src.guardrails.output import NAME_UNSURE_PREFIX
+    from src.report.render import render_review
+    from src.review.summary import action_violation, secbug_line, synth_payload
+
+    files = dp.parse_diff(
+        (config.EVAL_DIFFS_DIR / "03_llmchain.diff").read_text(encoding="utf-8")
+    )
+
+    def bug(line, message):
+        return Finding(
+            issue_type="bug",
+            file="app/chain.py",
+            line=line,
+            severity="high",
+            message=message,
+            evidence=[{"type": "code", "source": f"app/chain.py:{line}"}],
+            suggestion="s",
+        )
+
+    sure = bug(12, "LLMChain은 1.x에서 제거되어 ImportError가 납니다.")
+    unsure = bug(26, NAME_UNSURE_PREFIX + "`llm`이 정의되지 않았을 수 있습니다.")
+    review = Review(summary=[f"요약 {i}" for i in range(1, 6)], findings=[sure, unsure])
+    text = render_review(review, files, title="t")
+    assert "꼭 고쳐야 할 것 1건 (버그 1) · 확인 필요 1건" in text.splitlines()
+    assert "지적 2건 (꼭 고칠 것 1 · 확인 필요 1 · 다듬을 것 0)" in text
+    assert secbug_line([sure, unsure]) == (
+        "보안 지적 0건, 버그 지적 2건이며 꼭 고칠 것은 1건, 확인 필요는 1건입니다 "
+        "(먼저 볼 곳: app/chain.py 12행)."
+    )
+    only = render_review(
+        review.model_copy(update={"findings": [unsure]}), files, title="t"
+    )
+    assert "꼭 고쳐야 할 것 없음 · 확인 필요 1건" in only.splitlines()
+    assert [r.get("판단_필요") for r in synth_payload([sure, unsure])] == [None, True]
+    findings = [sure, unsure]
+    assert action_violation("26행 llm이 없으므로 고치세요.", findings) == (
+        "판단 필요 지적을 단정"
+    )
+    assert action_violation("26행 llm이 정의되는지 확인하세요.", findings) is None
+    assert action_violation("12행 import를 LCEL로 바꾸세요.", findings) is None
+    assert review.findings[1].severity == "high"  # Review JSON은 그대로

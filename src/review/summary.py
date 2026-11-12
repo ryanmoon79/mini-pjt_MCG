@@ -8,8 +8,8 @@ from __future__ import annotations
 import re
 
 from src.diff import parser as dp
+from src.findings.notes import is_note, is_unsure
 from src.findings.schema import Finding
-from src.guardrails.input import is_note
 from src.guardrails.output import (
     mentions_classic,
 )
@@ -45,7 +45,8 @@ _LINE_REF_RE = re.compile(r"(\d+)\s*(?:번\s*줄|번째\s*줄|행)")
 
 
 def _must(f: Finding) -> bool:
-    return f.severity in {"high", "medium"} and not is_note(f)
+    """꼭 고칠 것: high·medium 중 참고·판단 필요가 아닌 지적."""
+    return f.severity in {"high", "medium"} and not is_note(f) and not is_unsure(f)
 
 
 def secbug_line(findings: list[Finding]) -> str:
@@ -59,10 +60,12 @@ def secbug_line(findings: list[Finding]) -> str:
     if not sec and not bug:
         return "보안·버그 지적은 없습니다."
     must = [f for f in sec + bug if _must(f)]
+    unsure = [f for f in sec + bug if is_unsure(f)]
     first = sorted(must or sec + bug, key=lambda f: (f.file, f.line))[0]
+    checks = f", 확인 필요는 {len(unsure)}건" if unsure else ""
     return (
         f"보안 지적 {len(sec)}건, 버그 지적 {len(bug)}건이며 꼭 고칠 것은 "
-        f"{len(must)}건입니다 (먼저 볼 곳: {first.file} {first.line}행)."
+        f"{len(must)}건{checks}입니다 (먼저 볼 곳: {first.file} {first.line}행)."
     )
 
 
@@ -142,8 +145,14 @@ def action_violation(
     if SPECULATIVE_RE.search(text) and not text.strip().startswith("꼭 고쳐야 할 것은"):
         return "평가성 표현"
     lines = {f.line for f in findings}
-    if any(int(n) not in lines for n in _LINE_REF_RE.findall(text)):
+    refs = {int(n) for n in _LINE_REF_RE.findall(text)}
+    if any(n not in lines for n in refs):
         return "지적 목록에 없는 줄 번호"
+    # 판단 필요 지적만 있는 줄을 말하면 "확인"으로만 (단정형 "~하므로 고치세요" 금지)
+    sure = {f.line for f in findings if not is_unsure(f)}
+    unsure = {f.line for f in findings if is_unsure(f)} - sure
+    if refs & unsure and "확인" not in text:
+        return "판단 필요 지적을 단정"
     return length_number_violation(text, lengths)
 
 
@@ -194,6 +203,7 @@ def synth_payload(findings: list[Finding]) -> list[dict]:
 
     - security·bug를 앞에, style을 뒤에 둡니다.
     - "참고"(low: 인젝션 예시 문장·더미 표시 비밀값)는 요약에서 빼므로 넘기지 않습니다.
+    - "판단 필요" 지적에는 `판단_필요: true`를 붙여 요약이 단정하지 않게 합니다.
     - 파일별 줄 길이(E501) 지적은 "줄 길이 초과 N줄" 한 건으로 묶어 넘깁니다.
     """
     order = {"security": 0, "bug": 1, "style": 2}
@@ -205,18 +215,12 @@ def synth_payload(findings: list[Finding]) -> list[dict]:
         if is_line_length(f):
             lengths.setdefault(f.file, []).append(f.line)
             continue
-        out.append(
-            f.model_dump(
-                include={
-                    "issue_type",
-                    "file",
-                    "line",
-                    "severity",
-                    "message",
-                    "evidence",
-                }
-            )
+        row = f.model_dump(
+            include={"issue_type", "file", "line", "severity", "message", "evidence"}
         )
+        if is_unsure(f):  # 요약에서 단정하지 말고 "확인"으로만 쓸 지적
+            row["판단_필요"] = True
+        out.append(row)
     for path, rows in lengths.items():
         out.append(
             {
