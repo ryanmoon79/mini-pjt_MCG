@@ -136,7 +136,7 @@ GUI 규칙은 [CLAUDE.md](CLAUDE.md) 6번 "GUI"를 따릅니다. 에이전트·C
   - [x] 재테스트 전 보강 테스트 5건: 종합 형식 오류 2회 → 실패, validate_test_queries, run_eval ⑧⑨ 요약, 승인 + 허용 목록 dry-run 본문, GUI 진행 표시 trace 복사. 테스트 86건.
   - [x] 542b0bb 자기 리뷰에서 나온 2건: ① 고치는 방법 적용 위치(제안 줄이 다른 위치와 맞으면 그 위치 기준, 못 맞추면 코드 블록 + "적용 위치" 안내, 틀린 diff 금지) — `test_fix_is_placed_where_suggestion_lines_match`, `test_fix_without_matching_place_is_shown_as_block_with_location`. ② "판단 필요" 지적은 "확인 필요 N건"으로 따로 집계, 요약 5줄 단정형 금지 — `test_unsure_findings_are_counted_as_checks_not_must_fix`. Review JSON·판정 그대로.
   - [x] GUI 커밋 카드 선택·실행 중 표시(`interfaces/gui_server.py` 화면만): 선택 테두리·배경·"선택됨"/"실행 중" 표시·`aria-current`, 초과 카드 빨간 선과 함께 보임, 진행 영역에 커밋 해시·메시지, 실행 중 다른 카드·리뷰 버튼 잠금(중복 실행 방지)과 안내, diff 파일 선택 표시. 확인: 테스트 90건, 가짜 모델 22건 출력 전체 동일, 헤드리스 Chrome 스크린샷 7장(라이트·다크, 일반·초과 선택, 실행 중 → 완료, 파일 선택).
-  - [ ] 전체 재테스트 ①–⑥ (pytest → 가짜 모델 22건 → Sonnet 22건 → 커밋 재리뷰 5건 → RAGAS → 직접 확인).
+  - [x] 전체 재테스트 ①–⑥ (pytest → 가짜 모델 22건 → Sonnet 22건 → 커밋 재리뷰 5건 → RAGAS → 직접 확인) → `evaluation/round5_report.md`. 본 세트 20/20, 추가 1/2, ⑥ 전 항목 통과(CLI y/n/i·허용 목록 밖 차단 포함). 문제 항목 7개와 원인은 리포트 6절(고칠지는 사용자 결정).
 - [x] **round3 이후 ② JSON 글 응답 파싱** — 리뷰어 답·보완 답이 JSON 글이면 파싱(`agent_text`·`finalize_text`), 모두 실패할 때만 none. 확인: `test_reviewer_json_text_is_parsed_without_extra_call`, `test_finalize_json_text_is_parsed_and_only_garbage_is_none`. 종합 노드 글 응답(10번)은 범위 밖, 결정 대기.
 - [x] **round3 이후 ③ 줄 길이 화면 간략화** — "## 참고" 두 줄, 상세는 --verbose, 건수·HITL 번호 제외, 추천 개선안 줄 길이 최대 1개, Review JSON은 그대로. 확인: `test_line_length_is_a_short_note_not_numbered_items` 외 3건, 4·14·15·17번 실제 실행(참고 줄로 판정 항목 통과, 17번은 2차 시도).
   - 기준 시점: 2차 제출은 태그 `submission-round2`(커밋 `7d2400c`), 다음 버전은 main (submission-round2 태그 이후).

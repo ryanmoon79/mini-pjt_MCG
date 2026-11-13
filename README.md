@@ -109,8 +109,8 @@ python -m pytest tests -q
 
 ```bash
 python evaluation/validate_test_queries.py           # CSV 형식·건수 검증 (모델 호출 없음)
-python evaluation/run_eval.py                        # 본 세트 20건 + 추가 세트 2건 (동시 실행 2개)
-python evaluation/run_eval.py --cases 3,4,10         # 일부 케이스
+python evaluation/run_eval.py --review-model sonnet                 # 본 세트 20건 + 추가 세트 2건 (동시 실행 2개)
+python evaluation/run_eval.py --review-model sonnet --cases 3,4,10  # 일부 케이스
 python evaluation/run_eval.py --rejudge <실행ID>     # 저장된 기록을 현재 판정기로 다시 채점 (리뷰 모델 호출 없음)
 ```
 
@@ -121,6 +121,8 @@ uv venv .venv-eval --python 3.12
 uv pip install --python .venv-eval/Scripts/python.exe -r requirements-eval.txt
 .venv-eval/Scripts/python.exe evaluation/run_ragas.py <실행ID>
 ```
+
+**운영 안내 — Sonnet 일일 토큰 한도.** 리뷰 모델 Sonnet 4.6은 Bedrock 계정의 일일 토큰 한도(`Too many tokens per day`)가 있습니다. round5 재테스트에서 평가 22건(케이스당 입력 약 3.7만 토큰)을 돌린 날 커밋 재리뷰 5건(건당 입력 약 3.7만–73.5만 토큰, 큰 커밋일수록 많음)까지 이어서 돌리자 마지막 2건이 한도에 걸렸고, 다음 날 다시 돌려 끝냈습니다. **평가 22건과 커밋 재리뷰는 날을 나눠 실행하세요.** 한도에 걸린 실행은 답변 첫 줄이 "리뷰 중 오류가 났습니다: ThrottlingException"이고 trace `error`에 "Too many tokens per day"가 남으므로, 그 건만 다시 돌리면 됩니다. RAGAS 판정(Nova Pro, `us-east-1`)은 리뷰 모델과 다른 모델입니다.
 
 **6. 시연용 로컬 GUI** — 표준 라이브러리 `http.server`로 `127.0.0.1:8765`에서만 열립니다. CLI와 같은 `run_query`·`resume_review`를 씁니다.
 
