@@ -99,10 +99,10 @@ GUI 규칙은 [CLAUDE.md](CLAUDE.md) 6번 "GUI"를 따릅니다. 에이전트·C
   - D6-6 D5 준비: `run_eval.py --review-model gpt-oss|haiku`(판정 Nova Pro 고정), `--core`(2·3·4·14·15·17·19), 폴더 이름 끝에 모델 이름, `run_meta.json`·`summary.json`에 모델 기록, `round3_report.md` 틀(조건 A·B).
   - D6-7 더미 표시 비밀값(day04 `0c4f653` 리뷰가 계기): 주석에 더미 표시가 있으면 low 참고, 값 자체는 검사하지 않음(18번 high 유지, 평가셋 22개 diff에서 low로 바뀌는 비밀값 0건 — 조건 A·B 비교에 영향 없음). 확인: `test_example_in_value_only_stays_high`, `test_dummy_comment_above_lowers_to_note`.
   - D6-8 day04 버그 리뷰어 none 원인(LangSmith trace): 같은 diff를 두 번 리뷰, 두 번째에 버그 리뷰어가 결과 도구 대신 `{"findings": []}`를 글로 답하고(입력 7,405 토큰, stop=end_turn) 보완 단계도 글로만 답함(출력 12토큰) → 구조화 파서 None. 입력 크기보다 "JSON을 글로 답하는" 모델 습관이 원인. `run_eval` summary `structured_by_size`(케이스별 상태·.py 줄 수·리뷰어 입력 토큰) 추가.
-- [ ] **D5 다음 버전 평가** (커밋 `00807f1`) — B 완료, **A 보류**(Haiku 일일 토큰 한도, `00807f1` worktree로 재실행 예정 — 절차는 round3_report.md 1절).
+- [x] **D5 다음 버전 평가** (커밋 `00807f1`) — B·C 완료, **A는 Sonnet 확정으로 미완료 종료**(2026-11-13).
   - [x] B: gpt-oss 22건 — 본 세트 17/20(실패 4·9·10), 추가 1/2(실패 22), 실행 오류 0, structured none 2/51(JSON 글 응답). 커밋 재리뷰 5건(day07·day05·day03·day06 500·`cd65c0f` 409)과 토큰(500줄은 추정치). 리포트 `evaluation/round3_report.md`.
   - [x] README를 round3 기준으로 갱신(2차 값은 비교용으로 나란히, 리뷰 모델 표시).
-  - [ ] A: Haiku (**우선순위 낮춤** — 리뷰 모델을 Sonnet으로 확정해 Haiku 전체 결과는 필요 없음) — **worktree `../miniPJT-round3` (커밋 `00807f1`) 유지 중, (A) 미완료, worktree 코드 수정 금지.**
+  - [x] A: Haiku — **Sonnet 확정으로 (A) 미완료 종료** (사용자 결정, 2026-11-13). 9·22번은 돌리지 않음(round3_report 6절 6번 미확정). worktree `../miniPJT-round3`는 실행 기록 4폴더(파일 361개)가 main `evaluation/runs/`에 같은 내용으로 있음을 확인한 뒤 `git worktree remove`로 정리. 아래는 당시 기록.
     - 완료: 핵심 7건(`round3-haiku`, 6/7) + 나머지 중 1·5·6·7·8·10·12(`round3-rest-haiku`). 9번은 일일 토큰 한도로 실행 오류, 11·13·16·18·20·21·22 미실행.
     - 한도가 풀리면 **9·22번만** 돌려 B·C 실패가 코드 원인인지 확인하고 worktree를 정리합니다(나머지 11·13·16·18·20·21은 돌리지 않음): worktree에서 먼저 `cp evaluation/runs/round3-rest-haiku/run_meta.json evaluation/runs/round3-rest-haiku/run_meta_part1.json`(시작 때 run_meta.json을 덮어쓰므로) 뒤 `../../.venv/Scripts/python.exe evaluation/run_eval.py --review-model haiku --cases 9,22 --run-id round3-rest`. 실행 전에 main의 `.env`를 worktree로 다시 복사.
     - run_meta에 기록: 실행이 두 번(14:59–15:2x, 재개 시점)에 나뉘었고 그 사이 AWS 키가 바뀜(1차는 이전 키, 2차는 새 키) — 리뷰 모델(Haiku)·코드(`00807f1`)·판정기(Nova Pro, us-east-1)는 같음.
@@ -140,3 +140,21 @@ GUI 규칙은 [CLAUDE.md](CLAUDE.md) 6번 "GUI"를 따릅니다. 에이전트·C
 - [x] **round3 이후 ② JSON 글 응답 파싱** — 리뷰어 답·보완 답이 JSON 글이면 파싱(`agent_text`·`finalize_text`), 모두 실패할 때만 none. 확인: `test_reviewer_json_text_is_parsed_without_extra_call`, `test_finalize_json_text_is_parsed_and_only_garbage_is_none`. 종합 노드 글 응답(10번)은 범위 밖, 결정 대기.
 - [x] **round3 이후 ③ 줄 길이 화면 간략화** — "## 참고" 두 줄, 상세는 --verbose, 건수·HITL 번호 제외, 추천 개선안 줄 길이 최대 1개, Review JSON은 그대로. 확인: `test_line_length_is_a_short_note_not_numbered_items` 외 3건, 4·14·15·17번 실제 실행(참고 줄로 판정 항목 통과, 17번은 2차 시도).
   - 기준 시점: 2차 제출은 태그 `submission-round2`(커밋 `7d2400c`), 다음 버전은 main (submission-round2 태그 이후).
+
+## round5 이후 (2026-11-13, 제출 준비로 개선 중단 — 최종 평가는 round5 기준)
+
+- [x] 보안 검사: git 기록 전체(커밋 11개, 파일 225개, 커밋 메시지)에서 실제 키·토큰 없음. 평가셋 18번의 AWS 키는 AWS 문서 예시 키(가짜).
+- [x] worktree `../miniPJT-round3` 정리(실행 기록이 main에 같은 내용으로 있음을 확인), (A) Haiku 미완료 종료 기록.
+- [x] 1-c 리뷰어 diff 문맥 `focused` — 9건 실험으로 검증한 옵션, 기본값은 `full` 유지(round5 평가 기준). 결과는 round5_report 7절. 확인: `test_focused_text_keeps_changed_function_imports_and_used_constants`, `test_focused_text_is_unchanged_when_file_is_partial`.
+- [x] 제출 전 점검 (2026-11-13): README 맨 위 평가 대상·리뷰 모델 변경 흐름·평가자용 빠른 확인·Bedrock 권한·과정 규약 경로 설명, 섹션 순서는 2차 제출 README(템플릿 준수본)와 같음. 새 폴더에 클론해 프로젝트 `.venv`만으로 설치(Python 3.14) → `.env` 없이 pytest 92건·CSV 검증·ruff 통과, `run.bat`이 프로젝트 `.venv`로 GUI 실행(`GET /` 200), 03번 1건 리뷰(33초, 입력 3.9만 토큰, 승인 대기). 전체 평가(③)는 같은 날 토큰 한도 때문에 클론에서 생략 — round5 결과로 갈음. 마지막 보안 검사 통과.
+- [ ] 다음 단계 (round5_report 7절):
+  - [ ] 1-c `focused` 기본값 전환
+  - [ ] 1-a 버그 리뷰어 검색 규칙
+  - [ ] 1-b 리뷰어 호출 상한 축소
+  - [ ] 큰 커밋의 파일별 분할 리뷰
+  - [ ] ⑨ 보완: "초기화되지 않" 표현, 들여쓰기 주장 ast 검증 (곁가지 문장 반응은 우선순위 낮음, 기록만)
+  - [ ] `run_ragas.py --cases` 재실행 시 기존 결과에 병합
+  - [ ] 게시 차단 문구 조사 은/는
+  - [ ] 평가셋 재현율 케이스(입력 계약 위반 버그, 추가 세트)
+  - [ ] round6 재평가
+

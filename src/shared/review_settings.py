@@ -31,6 +31,13 @@ PEP8_CROSS_CHECK = True
 BUG_FAILURE_PATH_RULE = True
 
 
+# 리뷰어에게 넘기는 diff의 문맥 (round5 이후 개선 1-c, 실험 중).
+# "full"(기본): 받은 diff 그대로(-U9999면 파일 전체).
+# "focused": 바뀐 줄이 든 함수·클래스 + import + 참조하는 모듈 상수만
+#   (`diff.parser.focused_numbered_text`). 측정 실험에서만 코드로 잠시 바꿉니다.
+REVIEWER_DIFF_CONTEXT = "full"
+
+
 # ── 리뷰 설정: 변경 줄 수 한도와 ruff 기준 (저장소 설정 따르기) ─────────────
 
 

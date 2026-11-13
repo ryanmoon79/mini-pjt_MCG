@@ -17,6 +17,7 @@ LLM을 쓰지 않는 결정적 코드입니다 (CLAUDE.md 0번 "계산·규칙 �
 
 from __future__ import annotations
 
+import ast
 import re
 from dataclasses import dataclass, field
 
@@ -242,6 +243,118 @@ def numbered_text(files: list[FileDiff]) -> str:
             for ln in h.lines:
                 num = f"{ln.new_no:>4}" if ln.new_no is not None else "    "
                 out.append(f"{num} {ln.kind} {ln.text}")
+    return "\n".join(out)
+
+
+def _numbered_rows(file: FileDiff) -> list[tuple[str, int | None, str]]:
+    """(종류, 변경 후 줄 번호, numbered_text 형식 한 줄) 목록."""
+    rows = []
+    for h in file.hunks:
+        for ln in h.lines:
+            num = f"{ln.new_no:>4}" if ln.new_no is not None else "    "
+            rows.append((ln.kind, ln.new_no, f"{num} {ln.kind} {ln.text}"))
+    return rows
+
+
+def _focused_keep(file: FileDiff, rows) -> set[int] | None:
+    """리뷰어에게 남길 줄(rows 위치). 파일 전체가 보이지 않거나 파싱이 안 되면 None.
+
+    남기는 것: 바뀐 줄(+·-) · 바뀐 줄이 든 가장 안쪽 함수·클래스 전체(데코레이터 포함) ·
+    함수·클래스 밖의 바뀐 줄은 그 최상위 문장 전체 · 파일 상단 import · 남긴 코드가
+    읽는 이름의 최상위 대입문(모듈 상수, 4줄 이상이면 첫 줄만).
+    """
+    visible = new_side_lines(file)
+    if not visible:
+        return None
+    last = max(visible)
+    if any(n not in visible for n in range(1, last + 1)):
+        return None
+    try:
+        tree = ast.parse("\n".join(visible[n] for n in range(1, last + 1)) + "\n")
+    except SyntaxError:
+        return None
+    scopes = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    ]
+    spans: list[tuple[int, int]] = []
+    for i, (kind, new_no, _) in enumerate(rows):
+        if kind == "+":
+            target = new_no
+        elif kind == "-":  # 삭제 줄은 이어지는(없으면 앞선) 변경 후 줄에 붙임
+            after = [r[1] for r in rows[i:] if r[1] is not None]
+            before = [r[1] for r in rows[:i] if r[1] is not None]
+            target = (after or before[-1:] or [1])[0]
+        else:
+            continue
+        inner = [x for x in scopes if x.lineno <= target <= x.end_lineno]
+        if inner:
+            x = min(inner, key=lambda x: x.end_lineno - x.lineno)
+            start = min([d.lineno for d in x.decorator_list] + [x.lineno])
+            spans.append((start, x.end_lineno))
+        else:
+            stmt = next(
+                (s for s in tree.body if s.lineno <= target <= s.end_lineno), None
+            )
+            spans.append((stmt.lineno, stmt.end_lineno) if stmt else (target, target))
+    spans += [
+        (n.lineno, n.end_lineno)
+        for n in tree.body
+        if isinstance(n, (ast.Import, ast.ImportFrom))
+    ]
+
+    def inside(no: int | None) -> bool:
+        return no is not None and any(a <= no <= b for a, b in spans)
+
+    kept_new = {r[1] for r in rows if inside(r[1])}
+    used = {
+        n.id
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Name)
+        and isinstance(n.ctx, ast.Load)
+        and n.lineno in kept_new
+    }
+    for n in tree.body:
+        if isinstance(n, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            targets = n.targets if isinstance(n, ast.Assign) else [n.target]
+            names = {
+                x.id for t in targets for x in ast.walk(t) if isinstance(x, ast.Name)
+            }
+            if names & used:
+                end = n.end_lineno if n.end_lineno - n.lineno < 3 else n.lineno
+                spans.append((n.lineno, end))
+    return {i for i, r in enumerate(rows) if r[0] == "-" or inside(r[1])}
+
+
+def focused_numbered_text(files: list[FileDiff]) -> str:
+    """리뷰어 프롬프트용 축소 diff (실험, round5 이후 개선 1-c).
+
+    `numbered_text`와 같은 형식이지만, 바뀐 줄이 든 함수·클래스 전체와 import,
+    그 코드가 읽는 모듈 상수만 남기고 나머지는 "⋯ (N줄 생략)" 한 줄로 줄입니다.
+    줄 번호는 그대로(변경 후 기준)라 지적 위치는 바뀌지 않습니다. 파일 전체가
+    diff에 보이지 않거나 파싱되지 않는 파일은 원래 형식 그대로 넘깁니다.
+    출력 검증(근거·④⑥⑨·ruff)은 이 축소와 관계없이 파일 전체를 씁니다.
+    """
+    out: list[str] = []
+    for f in files:
+        rows = _numbered_rows(f)
+        keep = _focused_keep(f, rows)
+        out.append(f"### 파일: {f.path}")
+        if keep is None:
+            out += [r[2] for r in rows]
+            continue
+        gap = 0
+        for i, row in enumerate(rows):
+            if i in keep:
+                if gap:
+                    out.append(f"     ⋯ ({gap}줄 생략)")
+                    gap = 0
+                out.append(row[2])
+            else:
+                gap += 1
+        if gap:
+            out.append(f"     ⋯ ({gap}줄 생략)")
     return "\n".join(out)
 
 

@@ -35,6 +35,7 @@ from src.review.prompts import (
     bug_prompt,
 )
 from src.review.schema import ReviewerFindings
+from src.shared import review_settings
 
 BUG = "bug_reviewer"
 
@@ -220,7 +221,12 @@ def run_review_team(
     """
     status = {} if status is None else status
     scope = [f for f in py_files if f.path in plan.files]
-    task = _task_message(dp.numbered_text(scope), plan.files)
+    to_text = (
+        dp.focused_numbered_text
+        if review_settings.REVIEWER_DIFF_CONTEXT == "focused"
+        else dp.numbered_text
+    )
+    task = _task_message(to_text(scope), plan.files)
     collector: dict[str, list[Finding]] = {}
     workers = {
         name: _wrap_reviewer(

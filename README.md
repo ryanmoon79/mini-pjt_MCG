@@ -1,5 +1,9 @@
 # 미니 PJT: CiteReview — 근거를 다는 코드 리뷰 에이전트
 
+> ## 평가 대상: `main` 최신 커밋 (최종 버전)
+>
+> 과제 마감 시점 상태는 태그 [`submission-round2`](../../tree/submission-round2)로 보존했고, 그 뒤의 개선과 재평가는 [round3](evaluation/round3_report.md) · [round4](evaluation/round4_report.md) · [round5](evaluation/round5_report.md) 리포트에 있습니다. **이 README의 최종 평가 결과는 round5 기준입니다**(커밋 `ee461d5` 코드 + Sonnet 4.6).
+
 ## 무엇을 푸나
 
 LLM 코드 리뷰는 근거가 없어 믿고 고칠지 판단하기 어렵고, LangChain 0.x → 1.x 전환기에는 이미 제거된 API를 놓치거나 오히려 추천하기 쉽습니다.
@@ -13,23 +17,33 @@ LLM 코드 리뷰는 근거가 없어 믿고 고칠지 판단하기 어렵고, L
 
 ### 핵심 결과 한눈에
 
-> **현재 기준은 round4**입니다: 리뷰 모델 Claude Sonnet 4.6(`us.anthropic.claude-sonnet-4-6`, Bedrock `us-west-1`), 도메인 구조로 바꾼 현재 코드(커밋 `542b0bb`). 2차 제출 결과(태그 `submission-round2`, Haiku 4.5)는 비교 행으로 남깁니다. **리뷰 모델과 코드가 함께 바뀌어 직접 비교가 아닙니다.** 자세한 내용은 [round4_report.md](evaluation/round4_report.md).
->
-> **리뷰 모델 변경 흐름 (모두 사용자 결정):** Sonnet 4.5(과정 고정값) → Haiku 4.5(1·2차) → gpt-oss-120b(3차 B) → **Sonnet 4.6(현재)**. 앞의 모델들이 차례로 Bedrock 계정 일일 토큰 한도에 걸려 개발·평가가 막혔고, gpt-oss는 결과 도구를 건너뛰거나 JSON 글로 답하는 문제가 있어, 결과 수집이 가장 안정적인 Sonnet 4.6으로 확정했습니다(round3 비교, 아래 회고).
+> **최종 평가 = round5**: 리뷰 모델 Claude Sonnet 4.6(`us.anthropic.claude-sonnet-4-6`, Bedrock `us-west-1`), 커밋 `ee461d5` 코드, 판정 Nova Pro. 2차 제출 결과(태그 `submission-round2`, Haiku 4.5)는 비교 열로 남깁니다. **리뷰 모델과 코드가 함께 바뀌어 직접 비교가 아닙니다.** 자세한 내용은 [round5_report.md](evaluation/round5_report.md).
 
-| 항목 | **round4 (Sonnet 4.6, 현재)** | 2차 (Haiku 4.5, 제출 `submission-round2`) |
+| 항목 | **round5 (Sonnet 4.6, 최종)** | 2차 (Haiku 4.5, 제출 `submission-round2`) |
 |---|---|---|
 | 인-아웃 통과율 (본 세트 20건) | **20/20** | 20/20 (1차 9/20 → 재채점 15/20 → 2차 20/20) |
-| 추가 세트 (함정 케이스 21·22) | **1/2** (실패 22: 정렬된 import에 bug 지적) | 2/2 |
-| 근거 확인 비율 (존재) | **1.0** (30 → 30) | 1.0 (31 → 31) |
-| 근거-지적 일치율 (타당) | **0.667** (4/6), C2 제거 2건 | 1.0 (8/8), C2 제거 0건 |
-| 커밋 재리뷰 4건 bug 정밀도 | **1/5 = 0.20** (판단 필요 포함 0.40, 표본 5건) | (측정 안 함) |
-| 전체 실행 시간 (22건, 동시 2개) | 3분 30초 | 2분 55초 |
-| 케이스당 토큰 (평균, 본 세트) | 입력 36,491 · 출력 1,186 · 호출 9회 | (기록 없음) |
-| RAGAS | 전체 재테스트에서 실행 예정 | faithfulness 0.729 · answer_relevancy 0.264 · context_precision 0.711 · context_recall 1.000 ([아래](#ragas-평가-결과)) |
+| 추가 세트 (함정 케이스 21·22) | **1/2** (실패 22: 정렬된 import diff에 가정형 bug 지적) | 2/2 |
+| 근거 확인 비율 (존재) | **1.0** (29 → 29) | 1.0 (31 → 31) |
+| 근거-지적 일치율 (타당) | **0.8** (4/5), C2 제거 1건 | 1.0 (8/8), C2 제거 0건 |
+| 커밋 재리뷰 bug 정밀도 | round4: 1/5 = 0.20 (판단 필요 포함 0.40, 표본 5건). round5는 판단 안 함 | (측정 안 함) |
+| 전체 실행 시간 (22건, 동시 2개) | **3분 20초** | 2분 55초 |
+| 케이스당 토큰 (평균, 본 세트) | **입력 36,918 · 출력 1,148 · 호출 9회** | (기록 없음) |
+| RAGAS | **faithfulness 0.749 · answer_relevancy 0.290 · context_precision 0.453 · context_recall 1.000** ([아래](#ragas-평가-결과)) | 0.729 · 0.264 · 0.711 · 1.000 |
 
-- round4는 Sonnet의 오탐 줄이기(리뷰어 판단 규칙, 실패 경로 규칙, API 존재 주장 검증 ⑥, 자기부정 지적 필터 ⑦) 뒤의 결과입니다. round3 Sonnet(같은 모델, 이전 코드) 대비 본 세트 18 → 20, 평가셋 bug 지적 29 → 14, 재리뷰 화면 bug·security 13 → 5건입니다.
-- round4 이후 개선(이름 미정의 주장 검증 ⑨, ruff 자동 수정 ⑧, 참고 지적 섹션, ruff 중립 폴더 등)은 round4 숫자에 들어 있지 않습니다([round4_report.md 4절](evaluation/round4_report.md)).
+- round4·5는 Sonnet의 오탐 줄이기(리뷰어 판단 규칙, 실패 경로 규칙, 출력 검증 ⑥ API 존재 주장·⑦ 자기부정·⑧ ruff 자동 수정·⑨ 이름 미정의 주장) 뒤의 결과입니다. round3 Sonnet(같은 모델, 이전 코드) 대비 본 세트 18 → 20, 평가셋 bug 지적 29 → 14(round4), 재리뷰 화면 bug·security 13 → 5건(round4)입니다.
+
+### 리뷰 모델 — 과정 고정 스택과 달라진 점
+
+과정 고정 스택(상위 `AGENTS.md`)은 리뷰 LLM으로 **Sonnet 4.5(`us-east-1`)**를 정하지만, 이 프로젝트의 최종 결과는 **Sonnet 4.6(`us-west-1`)**입니다. 모두 사용자 결정이며 이유는 아래와 같습니다(자세한 내용은 회고와 [round3_report.md](evaluation/round3_report.md)).
+
+| 순서 | 리뷰 모델 | 쓴 평가 | 바꾼 이유 |
+|---|---|---|---|
+| 1 | Sonnet 4.5 (`us-east-1`, 과정 고정값) | — | 개발 중 Bedrock 계정 일일 토큰 한도(`Too many tokens per day`)로 막힘 |
+| 2 | Haiku 4.5 (`us-east-1`) | 1·2차(제출), 3차 A | 같은 일일 한도로 3차 측정이 중간에 끊김 |
+| 3 | gpt-oss-120b (`us-east-1`) | 3차 B | 결과 도구를 건너뛰거나 JSON 글로 답해 결과 수집이 불안정(structured none, 종합 노드 글 응답) |
+| 4 | **Sonnet 4.6 (`us-west-1`)** | 3차 C, round4, **round5(최종)** | 결과 수집이 가장 안정적(none 0)이고 bug를 가장 많이 찾음. 단점(오탐·토큰)은 round4·5에서 줄임 |
+
+그 밖에 과정 고정 스택과 다른 점: 체크포인터는 `SqliteSaver`(파일) 대신 같은 프로세스 재개용 `InMemorySaver`, 평가 판정·RAGAS 모델은 리뷰 모델과 다른 Nova Pro(평가 전용). 임베딩(Titan v2)·Chroma 설정은 과정 고정값 그대로입니다.
 
 ## 활용한 패턴 (Day 1–7)
 
@@ -70,18 +84,42 @@ LLM은 리뷰어·supervisor·종합 노드에만 쓰고, 계산과 규칙 판�
 
 ## 실행 방법
 
-**1. 환경** (Python 3.12 이상, 과정 venv에서 확인)
+### 평가자용 빠른 확인
+
+비용·권한이 적게 드는 순서입니다. 숫자는 round5 실행 기록 기준이고 모델 응답은 실행마다 조금씩 다릅니다.
+
+| 단계 | 명령 | 예상 결과 |
+|---|---|---|
+| ① AWS 없이 | `python -m pytest tests -q` | 92건 통과 (모두 가짜 모델 — 평가 diff 03·10·19번 등을 가짜 모델로 그래프 끝까지 돌리는 테스트 포함) |
+| | `python evaluation/validate_test_queries.py` | 마지막 줄 `RESULT: ALL PASS` (CSV 22건 형식·건수) |
+| ② AWS 최소 | `python -m src.interfaces.cli review data/eval_diffs/03_llmchain.diff --batch` | 약 20–35초(첫 실행은 코퍼스 12청크 임베딩 색인 포함), 입력 약 3.8–3.9만·출력 약 2.1–2.2천 토큰(Sonnet 4.6), 승인 대기에서 멈춤 |
+| ③ 전체 평가 | `python evaluation/run_eval.py --review-model sonnet` | 약 3–4분(동시 2개) + 판정. 입력 약 79만·출력 약 2.5만 토큰(리뷰 모델) + Nova Pro 판정 호출 |
+
+- **일일 토큰 한도 주의:** ③과 커밋 재리뷰를 같은 날 모두 돌리면 계정 일일 한도에 걸릴 수 있습니다(아래 "운영 안내").
+- **필요한 Bedrock 권한** (`bedrock:InvokeModel`, Converse API, 콘솔에서 모델 접근 허용):
+
+| 용도 | 모델 ID | 리전 | 필요한 단계 |
+|---|---|---|---|
+| 리뷰 (기본) | `us.anthropic.claude-sonnet-4-6` (추론 프로필) | `us-west-1` | ②③ |
+| 임베딩 | `amazon.titan-embed-text-v2:0` | `us-east-1` | ②③ (첫 색인), RAGAS |
+| 평가 판정·RAGAS | `us.amazon.nova-pro-v1:0` | `us-east-1` | ③, RAGAS |
+| (선택) 비교 모델 | `us.anthropic.claude-haiku-4-5-20251001-v1:0`, `openai.gpt-oss-120b-1:0` | `us-east-1` | `--review-model haiku`·`gpt-oss` |
+
+- **Sonnet 4.6이나 `us-west-1`을 쓸 수 없는 계정:** `--review-model haiku`(2차 제출 때의 모델, `us-east-1`)로 돌릴 수 있습니다 — CLI `review ... --review-model haiku`, 평가 `run_eval.py --review-model haiku`. 과정 표준 Sonnet 4.5로 돌리려면 [src/shared/config.py](src/shared/config.py)의 `REVIEW_MODELS`에 `"sonnet45": "us.anthropic.claude-sonnet-4-5-20250929-v1:0"` 한 줄을 넣고 `--review-model sonnet45`로 실행합니다(리전은 자동으로 `us-east-1`). **이때 결과는 리포트 숫자(Sonnet 4.6 기준)와 다를 수 있습니다** — 2차 결과가 Haiku 기준입니다.
+
+**1. 환경** (Python 3.12 이상. 프로젝트 안에 가상환경을 만들면 `run.bat`도 그 환경을 씁니다)
 
 ```bash
+python -m venv .venv
+.venv\Scripts\activate            # macOS·Linux: source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-프로젝트 루트에 `.env`를 만들고 Bedrock 접근 키를 넣습니다 (커밋하지 않음).
+프로젝트 루트에 `.env`를 만들고 Bedrock 접근 키를 넣습니다 (커밋하지 않음). 리전은 코드가 모델별로 정하므로(`src/shared/config.py`) `.env`에 넣지 않아도 됩니다.
 
 ```
 AWS_ACCESS_KEY_ID=...
 AWS_SECRET_ACCESS_KEY=...
-AWS_DEFAULT_REGION=us-east-1
 CITEREVIEW_ALLOWED_POST_REPOS=owner/repo   # (선택) 게시 허용 저장소, 쉼표 구분
 ```
 
@@ -99,7 +137,9 @@ python -m src.interfaces.cli review my.diff --repo-dir ../my-repo --max-lines 50
 
 승인 질문에는 `y`(승인), `n`(거절), `i 2 3`(2·3번 항목을 빼고 승인)으로 답합니다. 게시는 dry-run이라 코멘트 내용만 출력합니다.
 
-**3. 테스트** (가짜 모델만 써서 실제 API를 호출하지 않음)
+**(실험 옵션) 리뷰어 diff 문맥 줄이기:** [src/shared/review_settings.py](src/shared/review_settings.py)의 `REVIEWER_DIFF_CONTEXT`를 `"focused"`로 바꾸면 리뷰어에게 바뀐 줄이 든 함수·클래스 + import + 참조하는 모듈 상수만 넘깁니다(출력 검증은 파일 전체). 9건 실험에서 큰 커밋의 입력 토큰이 67–71% 줄었고 재현율 손실은 보이지 않았습니다([round5_report.md 7절](evaluation/round5_report.md)). 기본값은 `"full"`(받은 diff 그대로)이며, 최종 평가(round5)도 `full` 기준입니다. 다음 단계에서 기본값 전환 예정입니다.
+
+**3. 테스트** (가짜 모델만 써서 실제 API를 호출하지 않음, round5 이후 92건)
 
 ```bash
 python -m pytest tests -q
@@ -134,22 +174,23 @@ python -m src.interfaces.gui_server  # 브라우저가 열림 (Windows는 run.ba
 
 ## RAGAS 평가 결과
 
-2차 평가 실행 기록(본 세트)으로 계산했습니다. 판정 LLM은 리뷰 모델과 다른 Nova Pro, 임베딩은 Titan v2입니다.
+**round5(최종)** 실행 기록(본 세트)으로 계산했습니다. 판정 LLM은 리뷰 모델과 다른 Nova Pro, 임베딩은 Titan v2입니다. 2차는 비교용입니다.
 
-| 지표 | 값 | 대상 건수 |
-|---|---|---|
-| context_recall | **1.000** | 9 (traits에 문서 근거 ID가 있는 케이스) |
-| context_precision | **0.711** | 9 |
-| faithfulness | **0.729** | 19 (리뷰가 끝난 케이스, Java 거절 1건 제외) |
-| answer_relevancy | **0.264** | 10 (검색 청크가 있는 케이스) |
+| 지표 | round5 (Sonnet 4.6) | 대상 건수 | 2차 (Haiku 4.5) |
+|---|---|---|---|
+| context_recall | **1.000** | 9건 중 8건 채점 | 1.000 (9/9) |
+| context_precision | **0.453** | 9 | 0.711 (9/9) |
+| faithfulness | **0.749** | 19건 중 18건 채점 | 0.729 (19/19) |
+| answer_relevancy | **0.290** | 14 | 0.264 (10/10) |
 
-- **faithfulness 설정:** contexts에 검색 청크뿐 아니라 마스킹된 diff hunk와 리뷰 중 ruff 출력을 넣었습니다. 리뷰는 diff와 도구 출력을 근거로 쓰는데, 검색 청크만 넣으면 diff에 대한 문장이 모두 "근거 없음"이 되기 때문입니다(검색 청크만: 0.466).
-- **context_precision:** 9건 모두 정답 청크가 검색 순위 1위였지만, 14·17번을 판정 모델이 0.0으로 매겼습니다. **answer_relevancy**는 질의가 "…diff 를 리뷰해줘" 같은 짧은 명령이라 구조적으로 낮게 나옵니다.
-- 자세한 해석과 케이스별 값은 [evaluation/round2_report.md 7절](evaluation/round2_report.md#7-ragas-4개-지표-본-세트)에 있습니다.
+- **faithfulness 설정:** contexts에 검색 청크뿐 아니라 마스킹된 diff hunk와 리뷰 중 ruff 출력을 넣었습니다. 리뷰는 diff와 도구 출력을 근거로 쓰는데, 검색 청크만 넣으면 diff에 대한 문장이 모두 "근거 없음"이 되기 때문입니다(2차, 검색 청크만: 0.466).
+- **context_precision 하락(0.711 → 0.453):** 근거 목록 순서는 바꾸지 않고, 정답 청크의 검색 순위를 함께 보고합니다. round3 이후 줄 길이 근거 청크가 목록 끝에 붙고(4·15·17번), Sonnet 버그 리뷰어의 넓은 deprecated 검색이 정답 앞에 청크를 쌓습니다(4·6·15·17번). context_recall과 판정 통과에는 영향이 없습니다. 케이스별 순위표는 [round5_report.md 4절](evaluation/round5_report.md).
+- **미채점 2건(faithfulness 6번, context_recall 17번):** 판정 모델이 형식이 틀린 JSON을 내 파싱되지 않았고, 그 케이스만 다시 돌려도 같았습니다. 평균은 채점된 케이스로 냈습니다.
+- **answer_relevancy**는 질의가 "…diff 를 리뷰해줘" 같은 짧은 명령이라 구조적으로 낮게 나옵니다. 2차 해석은 [round2_report.md 7절](evaluation/round2_report.md#7-ragas-4개-지표-본-세트).
 
 ## 인-아웃 세트 통과율 (자체 평가)
 
-평가셋: [evaluation/test_queries.csv](evaluation/test_queries.csv) 본 세트 20건(positive 8 / negative 4 / edge 5 / guardrail 3) + 추가 세트 2건. 리뷰 모델 1·2차 Claude Haiku 4.5, 3차 B gpt-oss-120b, 3차 C·round4 Sonnet 4.6, 케이스마다 1회. 규칙은 [evaluation/README.md](evaluation/README.md)를 따릅니다.
+평가셋: [evaluation/test_queries.csv](evaluation/test_queries.csv) 본 세트 20건(positive 8 / negative 4 / edge 5 / guardrail 3) + 추가 세트 2건. 리뷰 모델 1·2차 Claude Haiku 4.5, 3차 B gpt-oss-120b, 3차 C·round4·round5 Sonnet 4.6, 케이스마다 1회. 규칙은 [evaluation/README.md](evaluation/README.md)를 따릅니다.
 
 - **1차:** 9 / 20 통과 → 같은 기록을 판정기 v2와 정정된 CSV로 재채점하면 15 / 20 ([round1_report.md](evaluation/round1_report.md))
 - **2차 (개선 후):** **20 / 20** 통과, 추가 세트 2 / 2, 실행 오류 0건 ([round2_report.md](evaluation/round2_report.md))
@@ -160,11 +201,13 @@ python -m src.interfaces.gui_server  # 브라우저가 열림 (Windows는 run.ba
 - **3차 B (다음 버전 코드 `00807f1` + gpt-oss-120b, 2차와 직접 비교 아님):** **17 / 20**, 추가 세트 1 / 2, 실행 오류 0건 ([round3_report.md](evaluation/round3_report.md))
   - 실패 원인: 4번은 **코드**(줄 길이 지적을 코드가 만들면서 리뷰어가 `search_evidence`를 부르지 않음 — CSV `expected_tools`와 불일치), 9·22번은 **모델**의 과잉 지적, 10번은 종합 노드가 구조화 출력 대신 글로 답한 **모델** 응답 형식(코드에 대비 없음)
   - 리뷰어 결과를 받지 못한 경우(`structured` none): 리뷰어 실행 51회 중 2회, 원인은 결과를 JSON 글로 답하는 gpt-oss 습관(크기와 무관해 보임)
-  - 3차 A(같은 코드 + Haiku 4.5, 핵심 7건)는 토큰 한도로 보류, `00807f1` 코드로 재실행 예정
+  - 3차 A(같은 코드 + Haiku 4.5)는 14/22건에서 Sonnet 확정으로 미완료 종료
 - **3차 C (같은 `00807f1` 코드 + Sonnet 4.6):** 18 / 20(수정 기준), 추가 세트 1 / 2 ([round3_report.md](evaluation/round3_report.md))
-- **round4 (현재 코드 `542b0bb` + Sonnet 4.6, 현재 기준):** **20 / 20**, 추가 세트 1 / 2(22번), 실행 오류 0건, structured none 0 ([round4_report.md](evaluation/round4_report.md))
+- **round4 (커밋 `542b0bb` + Sonnet 4.6):** **20 / 20**, 추가 세트 1 / 2(22번), 실행 오류 0건, structured none 0 ([round4_report.md](evaluation/round4_report.md))
   - C에서 실패한 9번(`create_agent`가 없다는 오탐)·17번(E711을 bug로도 지적)이 통과. 근거-지적 일치율 0.364 → 0.667
   - 커밋 재리뷰 4건의 bug 정밀도 0.15 → 0.20(표본 5건이라 경향으로만). 남은 오탐은 "이런 값으로 호출되면" 같은 가정형 경로
+- **round5 (커밋 `ee461d5` + Sonnet 4.6, 최종 평가):** **20 / 20**, 추가 세트 1 / 2(22번), 실행 오류 0건, structured none 0, 근거-지적 일치율 0.8(4/5), 전체 재테스트 ①–⑥ 통과 ([round5_report.md](evaluation/round5_report.md))
+  - round4 이후 개선(⑧ ruff 자동 수정, ⑨ 이름 미정의 주장 검증, ruff 중립 폴더, 참고 지적 섹션, "확인 필요" 집계, GUI 선택 표시) 반영. 커밋 재리뷰에서 ⑨가 day03 260행 오탐을 제거, f8e0c93 가짜 I001 해소
 
 ## 트라이앤에러 회고
 
@@ -198,6 +241,13 @@ python -m src.interfaces.gui_server  # 브라우저가 열림 (Windows는 run.ba
 - RAGAS 값에는 판정 모델의 성향이 섞이고(14·17번), faithfulness의 ruff 출력은 2차 실행 후 같은 diff로 다시 계산해 채웠습니다. 케이스마다 1회 실행이라 변동성은 재지 않았습니다.
 
 ### 다음 단계
+
+**최종 평가 결과는 round5 기준입니다.** 아래는 round5 이후 계획으로, 측정 방법과 근거는 [round5_report.md 7절](evaluation/round5_report.md)에 있습니다.
+
+- **토큰 줄이기:** 1-c 리뷰어 diff 문맥 `focused`를 기본값으로 전환(9건 실험으로 검증, 큰 커밋 입력 토큰 −67–71%), 1-a 버그 리뷰어 검색 규칙(diff에 나온 이름으로만 검색, 구버전 API가 없는 diff에서 deprecated 일반 검색 금지), 1-b 리뷰어 호출 상한 축소, 큰 커밋의 파일별 분할 리뷰
+- **출력 검증 ⑨ 보완:** "초기화되지 않" 계열 표현 추가, "if 블록 안에 있다" 같은 들여쓰기 주장의 ast 검증 (곁가지 문장 반응은 우선순위 낮음)
+- **평가:** 입력 계약 위반 버그(day07 94행 유형) 재현율 케이스를 추가 세트로, `run_ragas.py --cases` 재실행 시 기존 결과에 병합, round6 재평가
+- 작은 것: 게시 차단 문구의 조사 은/는
 - 요약 규칙 보강 (지적 0건이면 "찾은 문제 없음"과 검사 범위만)
 - **사내 LLM 이식:** `config.get_llm()`만 교체하고 같은 평가셋(본 세트 + 추가 세트)을 다시 실행해 통과율·일치율을 비교
 - LangChain 1.x 문서 코퍼스 추가 (지금은 PEP 8 5개 섹션 + 매핑표)
@@ -223,3 +273,5 @@ python -m src.interfaces.gui_server  # 브라우저가 열림 (Windows는 run.ba
 | [evaluation/run_eval.py](evaluation/run_eval.py) | `judge_case`, `alignment_counts`, `main` | 인-아웃 평가, 근거-지적 일치율 |
 | [src/interfaces/gui_server.py](src/interfaces/gui_server.py) | `list_commits`, `start_job`, `decide` | 시연용 로컬 GUI (커밋 목록, 별도 스레드 리뷰, 승인/거절) |
 | [evaluation/run_ragas.py](evaluation/run_ragas.py) | `main` | RAGAS 4개 지표 |
+
+**과정 규약 경로:** 2차 제출 뒤 `src/`를 도메인 폴더로 나눴습니다(제출본은 태그 `submission-round2`). 규약 경로는 그대로 동작합니다 — `src/tools.py`는 `src/tools/` 패키지가 되었고 `from src.tools import ...`는 `src/tools/__init__.py`의 재노출로 같게 동작합니다. `src/agent.py`(`run_query`·`resume_review`·`build_graph`)와 `src/retriever.py`(`build_retriever` 등)는 새 위치를 다시 내보내는 파일이며, `run_query`가 돌려주는 `answer`·`contexts`·`trace` 형식도 같습니다.

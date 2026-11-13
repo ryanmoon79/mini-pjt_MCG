@@ -121,3 +121,68 @@ def test_header_like_lines_inside_hunk_are_content():
         ("-", "-- old marker"),
         ("+", "++ new marker"),
     ]
+
+
+# ── 리뷰어용 축소 diff (round5 이후 1-c, 실험 옵션 "focused") ──────────────
+
+FOCUS_FILE = [
+    "import os",  # 1
+    "",  # 2
+    "LIMIT = 3",  # 3
+    "UNUSED = 9",  # 4
+    "",  # 5
+    "",  # 6
+    "def first():",  # 7
+    "    a = 1",  # 8
+    "    b = 2",  # 9
+    "    return a + b",  # 10
+    "",  # 11
+    "",  # 12
+    "def second(items):",  # 13
+    "    out = items[:LIMIT]",  # 14 ← 바뀐 줄
+    "    return os.sep.join(out)",  # 15
+]
+
+
+def _focus_diff(changed_line: int, start: int = 1) -> str:
+    """FOCUS_FILE을 문맥 전체로 보여 주고 `changed_line`만 바뀐 diff."""
+    body = []
+    for no, text in enumerate(FOCUS_FILE, 1):
+        if no < start:
+            continue
+        if no == changed_line:
+            body += ["-    out = items", f"+{text}"]
+        else:
+            body.append(f" {text}")
+    n_old = len(FOCUS_FILE) - start + 1
+    return (
+        "diff --git a/app/f.py b/app/f.py\n--- a/app/f.py\n+++ b/app/f.py\n"
+        f"@@ -{start},{n_old} +{start},{n_old} @@\n" + "\n".join(body) + "\n"
+    )
+
+
+def test_focused_text_keeps_changed_function_imports_and_used_constants():
+    """바뀐 줄이 든 함수 전체·import·그 함수가 읽는 모듈 상수만 남기고 나머지는 생략.
+
+    줄 번호(변경 후 기준)는 원래 형식과 같고, 바뀐 줄(+/-)은 모두 남는다.
+    """
+    files = dp.parse_diff(_focus_diff(14))
+    full = dp.numbered_text(files)
+    text = dp.focused_numbered_text(files)
+    assert len(text) < len(full)
+    assert "   1   import os" in text  # import
+    assert "   3   LIMIT = 3" in text  # 함수가 읽는 모듈 상수
+    assert "UNUSED" not in text  # 읽지 않는 상수는 생략
+    assert "def first" not in text and "a + b" not in text  # 다른 함수 본문 생략
+    assert "  13   def second(items):" in text  # 바뀐 줄이 든 함수 전체
+    assert "  14 + " in text and "     -     out = items" in text  # 바뀐 줄
+    assert "  15   " in text
+    assert "⋯ (" in text and "줄 생략)" in text
+    kept = [ln for ln in text.splitlines() if ln[:4].strip().isdigit()]
+    assert all(ln in full.splitlines() for ln in kept)  # 남긴 줄은 원래와 똑같음
+
+
+def test_focused_text_is_unchanged_when_file_is_partial():
+    """파일 일부만 보이면(ast로 분석 불가) 원래 형식 그대로 넘긴다."""
+    files = dp.parse_diff(_focus_diff(14, start=12))
+    assert dp.focused_numbered_text(files) == dp.numbered_text(files)
