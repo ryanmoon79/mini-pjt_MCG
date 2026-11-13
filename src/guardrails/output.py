@@ -519,6 +519,13 @@ SELF_NEGATION_PATTERNS = {
     ),
     "버그 아님": re.compile(r"버그(가|는)?\s*아닙니다|버그가?\s*아님(?=\s*[.。]|\s*$)"),
     "괜찮다는 결론": re.compile(r"(이므로|므로|때문에)\s*괜찮습니다"),
+    # 제출 전 수정 (ac91538 자기 리뷰 tests 87행 오탐): 실패 경로가 없다고 스스로 결론
+    "실패 경로 없음": re.compile(
+        r"(실행\s*)?실패\s*(하는\s*)?경로(가|는)?\s*없(습니다|음|다)(?!지만)"
+    ),
+    "지적 철회": re.compile(
+        r"이\s*지적은\s*(제거|철회|취소|무시)(해야|합니다|하세요|됩니다|함|\b)"
+    ),
 }
 
 
@@ -566,7 +573,9 @@ def drop_self_negated(findings: list[Finding]) -> tuple[list[Finding], list[dict
 
 # "정의되지 않은 이름"·NameError·UnboundLocalError를 주장하는 표현
 NAME_CLAIM_RE = re.compile(
-    r"NameError|UnboundLocalError|정의되지\s*않|미정의|is not defined|undefined name",
+    r"NameError|UnboundLocalError|정의되지\s*않|미정의|is not defined|undefined name"
+    # 제출 전 수정 (round5 day07 113행 오탐): "초기화되지 않은 상태" 계열
+    r"|초기화되지\s*않|초기화\s*(전|되기\s*전)에",
     re.IGNORECASE,
 )
 _BACKTICK_NAME_RE = re.compile(r"`([A-Za-z_]\w*)`")
@@ -910,3 +919,46 @@ def verify_name_claims(
             message = NAME_UNSURE_PREFIX + message
         kept.append(f.model_copy(update={"message": message}))
     return kept, dropped, unsure
+
+
+# ── 출력 검사: ruff 스타일 근거뿐인 bug·security 중복 (제출 전 수정, cd65c0f F401) ──
+
+_RUFF_STYLE_ID = re.compile(r"^ruff:[EWFIN]\d+$")
+
+
+def drop_ruff_style_duplicates(
+    findings: list[Finding],
+) -> tuple[list[Finding], list[dict]]:
+    """근거가 ruff 스타일 코드(`ruff:E·W·F·I·N…`)뿐인 bug·security 지적이 같은 파일·줄의
+    style 지적과 겹치면 뺍니다 (결정적, LLM 없음).
+
+    버그 리뷰어가 F401 같은 ruff 위반을 bug로도 내면 화면에 같은 문제가 두 번 나오고
+    요약 2줄의 버그 수가 늘어납니다(cd65c0f 리뷰). 코드 위치·문서 근거가 하나라도 있으면
+    별개의 지적으로 보고 그대로 둡니다.
+
+    Returns:
+        (유지할 지적, 제거 기록 `ruff_style_dup_dropped` — 위치·근거·지적 전체)
+    """
+    style_at = {(f.file, f.line) for f in findings if f.issue_type == "style"}
+    kept, dropped = [], []
+    for f in findings:
+        ids = [e.rule_id or "" for e in f.evidence]
+        if (
+            f.issue_type in {"bug", "security"}
+            and ids
+            and all(_RUFF_STYLE_ID.match(i) for i in ids)
+            and (f.file, f.line) in style_at
+        ):
+            dropped.append(
+                {
+                    "file": f.file,
+                    "line": f.line,
+                    "issue_type": f.issue_type,
+                    "rule_ids": ids,
+                    "reason": "ruff 스타일 근거뿐이고 같은 줄 style 지적과 중복",
+                    "finding": f.model_dump(),
+                }
+            )
+            continue
+        kept.append(f)
+    return kept, dropped

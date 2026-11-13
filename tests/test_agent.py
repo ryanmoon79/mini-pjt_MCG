@@ -1536,3 +1536,103 @@ def test_unsure_findings_are_counted_as_checks_not_must_fix():
     assert action_violation("26행 llm이 정의되는지 확인하세요.", findings) is None
     assert action_violation("12행 import를 LCEL로 바꾸세요.", findings) is None
     assert review.findings[1].severity == "high"  # Review JSON은 그대로
+
+
+# ── 제출 전 결정적 수정 4건 (round5 이후) ─────────────────────────────────
+
+
+def _small_finding(issue_type, line, message, evidence):
+    from src.findings.schema import Finding
+
+    return Finding(
+        issue_type=issue_type,
+        file="app/g.py",
+        line=line,
+        severity="low",
+        message=message,
+        evidence=evidence,
+        suggestion="s",
+    )
+
+
+def test_ruff_style_only_bug_duplicate_is_dropped():
+    """ruff 스타일 근거뿐인 bug가 같은 줄 style 지적과 겹치면 뺀다 (cd65c0f F401).
+
+    코드 위치 근거가 있거나 같은 줄 style 지적이 없으면 그대로 둔다.
+    """
+    from src.guardrails.output import drop_ruff_style_duplicates
+
+    ruff = [{"type": "tool", "source": "ruff", "rule_id": "ruff:F401"}]
+    code = [{"type": "code", "source": "app/g.py:16"}]
+    style = _small_finding("style", 16, "쓰지 않는 import", ruff)
+    dup = _small_finding("bug", 16, "쓰지 않는 import", ruff)
+    with_code = _small_finding("bug", 16, "import 실패", ruff + code)
+    alone = _small_finding("bug", 30, "쓰지 않는 import", ruff)
+    kept, dropped = drop_ruff_style_duplicates([style, dup, with_code, alone])
+    assert kept == [style, with_code, alone]
+    assert [(d["line"], d["rule_ids"]) for d in dropped] == [(16, ["ruff:F401"])]
+
+
+def test_self_negation_catches_no_failure_path_and_retraction():
+    """⑦ 새 표현: "실행 실패 경로가 없습니다", "이 지적은 제거해야 합니다".
+
+    양보절("실패 경로가 없지만 …")은 그대로 둔다.
+    """
+    from src.guardrails.output import drop_self_negated
+
+    code = [{"type": "code", "source": "app/g.py:87"}]
+    no_path = _small_finding(
+        "bug", 87, "재검토하면 이 테스트는 실행 실패 경로가 없습니다.", code
+    )
+    retract = _small_finding(
+        "bug", 87, "주석으로 의도가 밝혀져 있으므로 이 지적은 제거해야 합니다.", code
+    )
+    concession = _small_finding(
+        "bug", 87, "정상 입력에는 실패 경로가 없지만 None이면 TypeError가 납니다.", code
+    )
+    kept, dropped = drop_self_negated([no_path, retract, concession])
+    assert kept == [concession]
+    assert [d["pattern"] for d in dropped] == ["실패 경로 없음", "지적 철회"]
+
+
+def test_name_claim_with_not_initialized_wording_is_verified():
+    """⑨ 새 표현 "초기화되지 않은 상태"도 검증 대상 (round5 day07 113행 오탐 구조)."""
+    from src.guardrails.input import check_input
+    from src.guardrails.output import verify_name_claims
+
+    code = [
+        "def run(items, f):",
+        "    for item in items:",
+        "        try:",
+        "            f(item)",
+        "        except Exception:",
+        "            status = 'ERROR'",
+        "        else:",
+        "            status = 'PASS'",
+        "        print(status)",
+    ]
+    body = "".join(f"+{line}\n" for line in code)
+    files = check_input(
+        "diff --git a/app/g.py b/app/g.py\n--- /dev/null\n+++ b/app/g.py\n"
+        f"@@ -0,0 +1,{len(code)} @@\n{body}"
+    ).py_files
+    claim = _small_finding(
+        "bug",
+        9,
+        "`status` 변수가 초기화되지 않은 상태에서 비교가 실행될 수 있습니다.",
+        [{"type": "code", "source": "app/g.py:9"}],
+    )
+    kept, dropped, unsure = verify_name_claims([claim], files)
+    assert kept == [] and unsure == []
+    assert [(d["line"], d["names"]) for d in dropped] == [(9, ["status"])]
+
+
+def test_blocked_post_message_uses_right_topic_particle():
+    """게시 차단 문구의 조사: 끝 글자 받침에 따라 은/는."""
+    from src.review.graph import _topic
+
+    assert _topic("someone-else/other-repo") == "someone-else/other-repo는"
+    assert _topic("me/main") == "me/main은"
+    assert _topic("team/app1") == "team/app1은"
+    assert _topic("owner/repo2") == "owner/repo2는"
+    assert _topic("(저장소 없음)") == "(저장소 없음)은"

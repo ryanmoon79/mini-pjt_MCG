@@ -42,6 +42,7 @@ from src.guardrails.output import (
     FALLBACK_SUGGESTION,
     check_output,
     cross_check_pep8,
+    drop_ruff_style_duplicates,
     drop_self_negated,
     forbidden_suggestion,
     mentions_classic,
@@ -182,6 +183,23 @@ def _pep8_line_length_chunk() -> dict | None:
 
 
 E501_DOC_ID = "PEP8-maximum-line-length"
+
+
+def _topic(word: str) -> str:
+    """주제 조사 은/는을 붙입니다 (끝 글자 받침 기준, 결정적).
+
+    한글은 받침 유무, 숫자는 읽는 소리(0·1·3·6·7·8 받침 있음), 영문은 l·m·n으로
+    끝나면 받침이 있는 것으로 봅니다. 끝의 괄호·기호는 건너뜁니다.
+    """
+    core = word.rstrip(" )]}>'\"`.,")
+    last = core[-1:] if core else ""
+    if "가" <= last <= "힣":
+        final = (ord(last) - 0xAC00) % 28 != 0
+    elif last.isdigit():
+        final = last in "013678"
+    else:
+        final = last.lower() in "lmn"
+    return f"{word}{'은' if final else '는'}"
 
 
 def _unchecked(ctx: RunContext) -> list[str]:
@@ -381,6 +399,8 @@ def build_graph(ctx: RunContext, checkpointer=None):
         # ⑦ 본문이 스스로 "실제 버그 없음"이라고 결론 낸 bug·security 지적은 제거
         # (리뷰어 지적에만 적용, 입력 가드레일의 security 지적은 아래에서 따로 합침)
         kept, self_negated_dropped = drop_self_negated(kept)
+        # ruff 스타일 근거뿐인 bug·security가 같은 줄 style 지적과 겹치면 뺌 (F401 중복)
+        kept, ruff_style_dup_dropped = drop_ruff_style_duplicates(kept)
         # 입력 가드레일의 security 지적은 가드레일이 직접 만든 것이라 그대로 둠
         kept = [_fix_forbidden_suggestion(f) for f in kept]
         # ⑧ ruff가 자동으로 고칠 수 있는 style 지적(I001·E711 등)은 고치는 방법을
@@ -437,6 +457,8 @@ def build_graph(ctx: RunContext, checkpointer=None):
             api_claim_dropped=api_claim_dropped,
             # ⑦ 자기부정 지적: 걸린 패턴 이름·지적 전체
             self_negated_dropped=self_negated_dropped,
+            # ruff 스타일 근거뿐인 bug·security 중복 제거
+            ruff_style_dup_dropped=ruff_style_dup_dropped,
             # ⑧ ruff 자동 수정으로 고치는 방법을 바꾼 지적(설명 교체 여부 포함)
             ruff_fixed=ruff_fixed,
             line_length_by_code=len(long_lines),  # ruff로 코드가 만든 줄 길이 지적
@@ -606,7 +628,7 @@ def build_graph(ctx: RunContext, checkpointer=None):
         elif repo not in github.allowed_post_repos():
             ctx.post_result = {
                 "status": "blocked",
-                "reason": f"{repo or '(저장소 없음)'}은 게시 허용 목록에 없음",
+                "reason": f"{_topic(repo or '(저장소 없음)')} 게시 허용 목록에 없음",
             }
         else:
             ignore = set(decision.get("ignore", []))

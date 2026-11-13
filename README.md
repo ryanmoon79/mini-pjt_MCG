@@ -90,7 +90,7 @@ LLM은 리뷰어·supervisor·종합 노드에만 쓰고, 계산과 규칙 판�
 
 | 단계 | 명령 | 예상 결과 |
 |---|---|---|
-| ① AWS 없이 | `python -m pytest tests -q` | 92건 통과 (모두 가짜 모델 — 평가 diff 03·10·19번 등을 가짜 모델로 그래프 끝까지 돌리는 테스트 포함) |
+| ① AWS 없이 | `python -m pytest tests -q` | 96건 통과 (모두 가짜 모델 — 평가 diff 03·10·19번 등을 가짜 모델로 그래프 끝까지 돌리는 테스트 포함) |
 | | `python evaluation/validate_test_queries.py` | 마지막 줄 `RESULT: ALL PASS` (CSV 22건 형식·건수) |
 | ② AWS 최소 | `python -m src.interfaces.cli review data/eval_diffs/03_llmchain.diff --batch` | 약 20–35초(첫 실행은 코퍼스 12청크 임베딩 색인 포함), 입력 약 3.8–3.9만·출력 약 2.1–2.2천 토큰(Sonnet 4.6), 승인 대기에서 멈춤 |
 | ③ 전체 평가 | `python evaluation/run_eval.py --review-model sonnet` | 약 3–4분(동시 2개) + 판정. 입력 약 79만·출력 약 2.5만 토큰(리뷰 모델) + Nova Pro 판정 호출 |
@@ -139,7 +139,7 @@ python -m src.interfaces.cli review my.diff --repo-dir ../my-repo --max-lines 50
 
 **(실험 옵션) 리뷰어 diff 문맥 줄이기:** [src/shared/review_settings.py](src/shared/review_settings.py)의 `REVIEWER_DIFF_CONTEXT`를 `"focused"`로 바꾸면 리뷰어에게 바뀐 줄이 든 함수·클래스 + import + 참조하는 모듈 상수만 넘깁니다(출력 검증은 파일 전체). 9건 실험에서 큰 커밋의 입력 토큰이 67–71% 줄었고 재현율 손실은 보이지 않았습니다([round5_report.md 7절](evaluation/round5_report.md)). 기본값은 `"full"`(받은 diff 그대로)이며, 최종 평가(round5)도 `full` 기준입니다. 다음 단계에서 기본값 전환 예정입니다.
 
-**3. 테스트** (가짜 모델만 써서 실제 API를 호출하지 않음, round5 이후 92건)
+**3. 테스트** (가짜 모델만 써서 실제 API를 호출하지 않음, 제출 시점 96건)
 
 ```bash
 python -m pytest tests -q
@@ -240,14 +240,23 @@ python -m src.interfaces.gui_server  # 브라우저가 열림 (Windows는 run.ba
 - **(다음 버전) 더미로 표시된 비밀값:** 탐지된 줄의 `#` 주석이나 바로 위 1–2줄 주석 줄에 더미·예시·dummy·example·test·fake·sample 같은 표시가 있으면 "참고: 더미로 표시된 비밀값"(low)으로 낮추고 꼭 고칠 것과 요약에서 뺍니다(지적과 마스킹은 그대로). 값 자체(따옴표 안)는 보지 않아 평가셋 18번(`…EXAMPLE` 키, 주석 없음)은 high입니다. **그래서 더미라고 적힌 진짜 키는 low로만 잡힙니다.** 도구는 진짜 키인지 확인하지 못합니다.
 - RAGAS 값에는 판정 모델의 성향이 섞이고(14·17번), faithfulness의 ruff 출력은 2차 실행 후 같은 diff로 다시 계산해 채웠습니다. 케이스마다 1회 실행이라 변동성은 재지 않았습니다.
 
+### round5 이후, 제출 전 결정적 수정 4건
+
+모델 호출 없이 코드로 판정하는 작은 수정만 넣었습니다. 저장된 리뷰 123건에 다시 적용해 맞는 지적이 빠지지 않음을 확인했고(오탐 1건만 제거), **평가 숫자는 round5 그대로입니다**(실제 모델 재평가 안 함). 자세한 내용과 실제 리뷰 사례(cd65c0f, ac91538, f8e0c93 처음 vs 최종)는 [round5_report.md 7절](evaluation/round5_report.md).
+
+1. F401 같은 ruff 스타일 위반이 bug와 style로 두 번 나오던 중복 제거 (출력 검증. 함께 시도한 프롬프트 한 줄은 타당한 지적을 빠뜨려 되돌림)
+2. ⑦ 자기부정 표현 추가 ("실행 실패 경로가 없습니다", "이 지적은 제거해야 합니다")
+3. ⑨ 이름 미정의 주장에 "초기화되지 않은 상태" 계열 추가
+4. 게시 차단 문구의 조사 은/는
+
 ### 다음 단계
 
 **최종 평가 결과는 round5 기준입니다.** 아래는 round5 이후 계획으로, 측정 방법과 근거는 [round5_report.md 7절](evaluation/round5_report.md)에 있습니다.
 
 - **토큰 줄이기:** 1-c 리뷰어 diff 문맥 `focused`를 기본값으로 전환(9건 실험으로 검증, 큰 커밋 입력 토큰 −67–71%), 1-a 버그 리뷰어 검색 규칙(diff에 나온 이름으로만 검색, 구버전 API가 없는 diff에서 deprecated 일반 검색 금지), 1-b 리뷰어 호출 상한 축소, 큰 커밋의 파일별 분할 리뷰
-- **출력 검증 ⑨ 보완:** "초기화되지 않" 계열 표현 추가, "if 블록 안에 있다" 같은 들여쓰기 주장의 ast 검증 (곁가지 문장 반응은 우선순위 낮음)
+- **출력 검증 ⑨ 보완:** "if 블록 안에 있다" 같은 들여쓰기 주장의 ast 검증 (곁가지 문장 반응은 우선순위 낮음)
 - **평가:** 입력 계약 위반 버그(day07 94행 유형) 재현율 케이스를 추가 세트로, `run_ragas.py --cases` 재실행 시 기존 결과에 병합, round6 재평가
-- 작은 것: 게시 차단 문구의 조사 은/는
+- **오탐·고치는 방법:** 양보형 오탐("동작하지만 … 할 수 있다") 대응, 다른 지적을 되풀이하는 지적 걸러내기, 고치는 방법 문법 검증(수정안을 적용해 파싱되지 않으면 -/+ 대신 "직접 확인"으로 표시) — 저장된 기록으로 먼저 측정
 - 요약 규칙 보강 (지적 0건이면 "찾은 문제 없음"과 검사 범위만)
 - **사내 LLM 이식:** `config.get_llm()`만 교체하고 같은 평가셋(본 세트 + 추가 세트)을 다시 실행해 통과율·일치율을 비교
 - LangChain 1.x 문서 코퍼스 추가 (지금은 PEP 8 5개 섹션 + 매핑표)
