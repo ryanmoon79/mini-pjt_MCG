@@ -47,22 +47,22 @@ LLM 코드 리뷰는 근거가 없어 믿고 고칠지 판단하기 어렵고, L
 
 ## 활용한 패턴 (Day 1–7)
 
-과정 공식 패턴 12개 중 **11개 적용** (MCP는 선택 작업 C1으로 미구현).
+과정 공식 패턴 12개 중 **10개 적용 + 1개 일부**(10번: 규칙 기반 planner만, 장기 메모리 없음), **MCP 미구현**(선택 작업 C1).
 
 | # | 패턴 | Day | CiteReview에서 쓰는 곳 |
 |---|---|---|---|
-| 1 | LCEL chain (Pydantic 구조화 출력) | Day 1 | 종합 노드: `SYNTH_PROMPT \| llm.with_structured_output(ReviewSummary)`로 요약 5줄·추천 개선안 생성 (형식 오류 시 1회 재생성) |
+| 1 | LCEL chain (Pydantic 구조화 출력) | Day 1 | 종합 노드: `SYNTH_PROMPT \| llm.with_structured_output(SummaryDraft)`로 요약 5줄·추천 개선안 생성 (형식 오류 시 1회 재생성) |
 | 2 | ReAct (도구 자율 선택) | Day 3 | 리뷰어 2종이 `create_agent`로 `ruff_check`·`search_evidence` 중 필요한 도구를 스스로 고름 |
-| 3 | RAG (하이브리드 검색) | Day 2 | `src/evidence/` (재노출 `src/retriever.py`): PEP 8·deprecated 매핑표 12청크(`rule_id` 메타데이터), **BM25 + Chroma 벡터를 RRF로 직접 합침** (`EnsembleRetriever`는 1.x에서 `langchain_classic`으로 옮겨져 쓰지 않음) |
+| 3 | RAG (하이브리드 검색) | Day 2 | `src/evidence/` (재노출 `src/retriever.py`): PEP 8·deprecated 매핑표 12청크(`rule_id` 메타데이터), **BM25 + Chroma 벡터를 RRF로 직접 합침** (`EnsembleRetriever`는 1.x에서 `langchain_classic`으로 옮겨져 쓰지 않음). **리랭킹·쿼리 확장은 미적용** |
 | 4 | 도구 다중 | Day 4 | 한 리뷰에서 `ruff_check` → `search_evidence`(ruff 결과의 `pep8_rule_id`로 PEP 8 섹션 검색)를 이어서 사용 |
 | 5 | MCP 서버 연동 | Day 4 | **미구현** — GitHub MCP PR 조회(`github_get_pr`)는 선택 작업 C1 |
-| 6 | 가드레일 | Day 5 | 입력: 비밀값·PII 마스킹, 인젝션 탐지, 범위(`.py`만, 300줄) / 출력: 스키마, 근거 실재 확인, `langchain_classic` 권장 제거, PEP 8 근거 ruff 교차 확인(C2) |
+| 6 | 가드레일 | Day 5 | 입력: 비밀값·PII 마스킹, 인젝션 탐지, 범위(`.py`만, 기본 300줄·최대 500) / 출력: 스키마, ① 근거 실재 확인, ② PEP 8 근거 ruff 교차 확인(C2), ③ `langchain_classic` 권장 제거, ④ 파싱 실패 주장 검증(`ast.parse`), ⑤ 줄 길이 지적을 ruff로 생성, ⑥ API 존재 주장 검증(실제 import), ⑦ 자기부정 지적 제거, ⑧ ruff 자동 수정 결과로 고치는 방법, ⑨ 이름 미정의 주장 정적 분석 |
 | 7 | HITL | Day 5 | 게시 노드 앞 `interrupt()`로 승인·거절·항목별 제외 (`InMemorySaver`로 같은 프로세스 안에서 재개, 게시는 dry-run + 허용 목록) |
 | 8 | 미들웨어 | Day 5 | 모든 리뷰어에 모델 호출 직전 마스킹 미들웨어(`wrap_model_call`) + `ModelCallLimitMiddleware` |
 | 9 | Multi-Agent Supervisor | Day 6 | `langgraph_supervisor.create_supervisor` + 버그·스타일 리뷰어 (supervisor가 계획된 리뷰어를 건너뛰면 코드가 직접 실행) |
-| 10 | Plan-Execute | Day 7 | 규칙 기반 planner: 버그 리뷰어는 항상, 스타일 리뷰어는 추가된 줄이 있을 때 |
+| 10 | Plan-Execute · 장기 메모리 | Day 7 | **일부** — 규칙 기반 planner만(버그 리뷰어는 항상, 스타일 리뷰어는 추가된 줄이 있을 때). 장기 메모리(LangGraph Store)는 없음 |
 | 11 | Observability · Trace | Day 7 | `run_query`의 `trace`(시각 포함 결정적 이벤트: 노드·도구 호출·가드레일 전후 지적 수·HITL), 평가 기록 `trace.json`, `.env`에 LangSmith 키가 있으면 LangSmith |
-| 12 | 평가 (RAGAS · LLM-as-Judge) | Day 7 | RAGAS 4개 지표, Nova Pro로 문장형 항목 판정(코드로 판정할 수 있는 항목은 코드로), 1·2차 자체 평가 |
+| 12 | 평가 (RAGAS · LLM-as-Judge) | Day 7 | 인-아웃 세트 22건으로 1–5차 자체 평가(최종 round5), RAGAS 4개 지표(round5), Nova Pro로 문장형 항목 판정(코드로 판정할 수 있는 항목은 코드로), 근거-지적 일치율·커밋 재리뷰 정밀도 |
 
 ## 아키텍처
 
@@ -90,7 +90,7 @@ LLM은 리뷰어·supervisor·종합 노드에만 쓰고, 계산과 규칙 판�
 
 | 단계 | 명령 | 예상 결과 |
 |---|---|---|
-| ① AWS 없이 | `python -m pytest tests -q` | 96건 통과 (모두 가짜 모델 — 평가 diff 03·10·19번 등을 가짜 모델로 그래프 끝까지 돌리는 테스트 포함) |
+| ① AWS 없이 | `python -m pytest tests -q` | 98건 통과 (모두 가짜 모델 — 평가 diff 03·10·19번 등을 가짜 모델로 그래프 끝까지 돌리는 테스트 포함) |
 | | `python evaluation/validate_test_queries.py` | 마지막 줄 `RESULT: ALL PASS` (CSV 22건 형식·건수) |
 | ② AWS 최소 | `python -m src.interfaces.cli review data/eval_diffs/03_llmchain.diff --batch` | 약 20–35초(첫 실행은 코퍼스 12청크 임베딩 색인 포함), 입력 약 3.8–3.9만·출력 약 2.1–2.2천 토큰(Sonnet 4.6), 승인 대기에서 멈춤 |
 | ③ 전체 평가 | `python evaluation/run_eval.py --review-model sonnet` | 약 3–4분(동시 2개) + 판정. 입력 약 79만·출력 약 2.5만 토큰(리뷰 모델) + Nova Pro 판정 호출 |
@@ -139,7 +139,7 @@ python -m src.interfaces.cli review my.diff --repo-dir ../my-repo --max-lines 50
 
 **(실험 옵션) 리뷰어 diff 문맥 줄이기:** [src/shared/review_settings.py](src/shared/review_settings.py)의 `REVIEWER_DIFF_CONTEXT`를 `"focused"`로 바꾸면 리뷰어에게 바뀐 줄이 든 함수·클래스 + import + 참조하는 모듈 상수만 넘깁니다(출력 검증은 파일 전체). 9건 실험에서 큰 커밋의 입력 토큰이 67–71% 줄었고 재현율 손실은 보이지 않았습니다([round5_report.md 7절](evaluation/round5_report.md)). 기본값은 `"full"`(받은 diff 그대로)이며, 최종 평가(round5)도 `full` 기준입니다. 다음 단계에서 기본값 전환 예정입니다.
 
-**3. 테스트** (가짜 모델만 써서 실제 API를 호출하지 않음, 제출 시점 96건)
+**3. 테스트** (가짜 모델만 써서 실제 API를 호출하지 않음, 98건)
 
 ```bash
 python -m pytest tests -q
@@ -167,10 +167,13 @@ uv pip install --python .venv-eval/Scripts/python.exe -r requirements-eval.txt
 **6. 시연용 로컬 GUI** — 표준 라이브러리 `http.server`로 `127.0.0.1:8765`에서만 열립니다. CLI와 같은 `run_query`·`resume_review`를 씁니다.
 
 ```bash
-python -m src.interfaces.gui_server  # 브라우저가 열림 (Windows는 run.bat 더블클릭)
+python -m src.interfaces.gui_server  # 브라우저가 열림
+# Windows: run.bat 더블클릭 / 맥·리눅스(Git Bash 포함): bash run.sh — 둘 다 프로젝트 .venv의 Python으로 실행
 ```
 
 **폴더 선택** 버튼(맨 앞에 뜨는 Windows 폴더 창)이나 경로 입력으로 저장소를 고르면 커밋 카드 목록(메시지, 해시, 날짜, `.py` 변경 줄 수, 적용 한도 초과 표시)이 나오고 카드를 눌러 리뷰합니다. 변경 한도 입력칸(비우면 저장소 설정 또는 300, 최대 500)을 바꾸면 초과 표시가 새 한도로 다시 계산되고, 커밋 리뷰는 그 저장소의 ruff 설정을 따릅니다. 또는 diff 파일을 고르면, 진행 단계(입력 가드레일 → planner → 리뷰어 → 출력 검증 → 종합 → 렌더링 → 승인 대기)와 CLI와 같은 고정폭 결과가 나오고, 승인/거절 버튼으로 dry-run 게시를 결정합니다.
+
+**7. 로컬 API** — `python -m src.interfaces.api_server`(127.0.0.1:8766)가 `POST /query` `{"question": "data/eval_diffs/03_llmchain.diff 를 리뷰해줘"}`에 `run_query` 결과(`answer`·`contexts`·`trace`)를 그대로 돌려줍니다. 승인 대기에서 멈추고 게시하지 않으며, 표준 라이브러리만 쓰고 Host 헤더가 이 서버 자신일 때만 받습니다. **Docker 이미지는 제공하지 않습니다**(Dockerfile 없음).
 
 ## RAGAS 평가 결과
 
@@ -273,7 +276,7 @@ python -m src.interfaces.gui_server  # 브라우저가 열림 (Windows는 run.ba
 | [src/review/team.py](src/review/team.py) | `plan_reviews`, `build_reviewer`, `run_review_team` | 규칙 기반 planner, `create_agent` 리뷰어, supervisor, 보완 단계 |
 | [src/review/summary.py](src/review/summary.py) | `secbug_line`, `style_line`, `scope_line`, `change_violation` | 요약 2·3·4줄(코드)과 1·5줄(LLM) 규칙 검사 |
 | [src/review/prompts.py](src/review/prompts.py) | `BUG_PROMPT`, `STYLE_PROMPT`, `SYNTH_PROMPT` | 리뷰 흐름의 LLM 프롬프트 |
-| [src/tools/](src/tools/) | `build_tools` (`ruff_check`, `search_evidence`), `run_ruff`, `github_post_comment` | 도메인 도구 (게시는 dry-run). `src.tools`로 재노출 |
+| [src/tools.py](src/tools.py) → [src/toolkit/](src/toolkit/) | `build_tools` (`ruff_check`, `search_evidence`), `run_ruff`, `github_post_comment` | 도메인 도구 (게시는 dry-run). `src.tools`로 재노출 |
 | [src/evidence/search.py](src/evidence/search.py) | `build_retriever`, `HybridRetriever.search`, `rrf_merge` | RAG 파이프라인 (BM25 + 벡터, RRF). 과정 규약 경로 [src/retriever.py](src/retriever.py)로 재노출 |
 | [src/guardrails/](src/guardrails/) | `check_input`, `check_output`, `cross_check_pep8`, `verify_api_claims`, `masking_middleware` | 입력 가드레일, 근거 존재 검사, C2, API 존재 주장 검증, 마스킹 미들웨어 |
 | [src/findings/schema.py](src/findings/schema.py) | `Evidence` → `Finding` → `Review` | 지적 데이터 모델 (여러 도메인 공통) |
@@ -281,6 +284,7 @@ python -m src.interfaces.gui_server  # 브라우저가 열림 (Windows는 run.ba
 | [src/shared/config.py](src/shared/config.py) | `get_llm`, `get_embeddings` | 모델·리전·환경 설정 (Sonnet 4.6, us-west-1) |
 | [evaluation/run_eval.py](evaluation/run_eval.py) | `judge_case`, `alignment_counts`, `main` | 인-아웃 평가, 근거-지적 일치율 |
 | [src/interfaces/gui_server.py](src/interfaces/gui_server.py) | `list_commits`, `start_job`, `decide` | 시연용 로컬 GUI (커밋 목록, 별도 스레드 리뷰, 승인/거절) |
+| [src/interfaces/api_server.py](src/interfaces/api_server.py) | `Handler.do_POST`, `main` | 로컬 API `POST /query` (run_query 결과 그대로, 승인 대기에서 멈춤) |
 | [evaluation/run_ragas.py](evaluation/run_ragas.py) | `main` | RAGAS 4개 지표 |
 
-**과정 규약 경로:** 2차 제출 뒤 `src/`를 도메인 폴더로 나눴습니다(제출본은 태그 `submission-round2`). 규약 경로는 그대로 동작합니다 — `src/tools.py`는 `src/tools/` 패키지가 되었고 `from src.tools import ...`는 `src/tools/__init__.py`의 재노출로 같게 동작합니다. `src/agent.py`(`run_query`·`resume_review`·`build_graph`)와 `src/retriever.py`(`build_retriever` 등)는 새 위치를 다시 내보내는 파일이며, `run_query`가 돌려주는 `answer`·`contexts`·`trace` 형식도 같습니다.
+**과정 규약 경로:** 2차 제출 뒤 `src/`를 도메인 폴더로 나눴습니다(제출본은 태그 `submission-round2`). 공식 제출 구조의 세 파일은 그대로 있습니다 — `src/agent.py`(`run_query`·`resume_review`·`build_graph`), `src/tools.py`(`build_tools`·`run_ruff`·`github_post_comment` 등), `src/retriever.py`(`build_retriever` 등)는 도메인 폴더(`review/`·`toolkit/`·`evidence/`)의 코드를 다시 내보내는 파일이라 `from src.tools import ...` 같은 규약 경로가 그대로 동작합니다. 도구 패키지는 `src/tools.py` 파일과 이름이 겹치지 않도록 `src/toolkit/`으로 두었고, `run_query`가 돌려주는 `answer`·`contexts`·`trace` 형식도 같습니다.

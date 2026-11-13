@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from src.shared.config import load_env
-from src.tools.agent_tools import ToolLog
+from src.toolkit.agent_tools import ToolLog
 
 
 def allowed_post_repos() -> set[str]:

@@ -1,7 +1,8 @@
 """src/ 도메인 import 방향 테스트 (CLAUDE.md 2번 "파일 배치 규칙").
 
 다른 도메인은 자기보다 **아래층만** import합니다(같은 도메인 안은 자유).
-맨 위의 제출 규약 재노출 파일(src/agent.py, src/retriever.py)은 검사하지 않습니다.
+맨 위의 제출 규약 재노출 파일(src/agent.py, src/tools.py, src/retriever.py)은
+검사하지 않습니다.
 실제 LLM이나 모듈 import 없이, 파일을 ast로 읽어 import 문만 봅니다.
 """
 
@@ -16,13 +17,13 @@ LAYERS = {
     "guardrails": 3,
     "report": 3,
     "evidence": 2,
-    "tools": 2,
+    "toolkit": 2,
     "diff": 1,
     "observability": 1,
     "findings": 1,
     "shared": 0,
 }
-FACADES = {"agent.py", "retriever.py"}  # src/ 바로 아래 재노출 파일
+FACADES = {"agent.py", "retriever.py", "tools.py"}  # src/ 바로 아래 재노출 파일
 
 
 def imported_domains(tree: ast.AST) -> list[tuple[int, str]]:
@@ -75,7 +76,7 @@ def test_src_imports_only_go_down_the_layers():
         problems += [f"src/{rel.as_posix()} {v}" for v in violations(domain, tree)]
     assert problems == [], "\n".join(problems)
     # 검사기 자체 확인: 거꾸로 가는 import와 같은 층 import는 잡아야 함
-    assert violations("tools", ast.parse("from src.review.graph import run_query"))
+    assert violations("toolkit", ast.parse("from src.review.graph import run_query"))
     assert violations("report", ast.parse("from src.guardrails import input"))
     ok = ast.parse("from src.findings.schema import Finding")
     assert not violations("review", ok)

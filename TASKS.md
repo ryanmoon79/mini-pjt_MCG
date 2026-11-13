@@ -162,4 +162,5 @@ GUI 규칙은 [CLAUDE.md](CLAUDE.md) 6번 "GUI"를 따릅니다. 에이전트·C
   - [ ] 양보형 오탐("동작하지만 … 할 수 있다"), 다른 지적을 되풀이하는 지적 걸러내기
   - [ ] 고치는 방법 문법 검증(수정안 적용 후 `ast.parse` 실패면 "자동으로 맞추지 못함, 직접 확인") — 저장된 기록으로 먼저 측정
   - [ ] round6 재평가
-
+- [x] 제출 뒤 문서·API (2026-11-13): README 패턴 표 정정(SummaryDraft, 리랭킹·쿼리 확장 미적용, 출력 검증 ①–⑨, 10번 일부, 평가 1–5차), Docker 미제공 명시. 로컬 API `POST /query`(`src/interfaces/api_server.py`, 표준 라이브러리, 127.0.0.1, Host·Origin 검사, 같은 포트 중복 실행 방지, 승인 대기에서 멈춤). 확인: `tests/test_api_server.py` 2건.
+- [x] 공식 제출 구조 맞추기 (2026-11-13): 도구 패키지 `src/tools/` → `src/toolkit/`, `src/tools.py`를 재노출 파일로(`from src.tools import ...` 그대로 동작). 확인: 가짜 모델 22건 출력 전후 바이트 동일, 층 규칙 테스트(toolkit, 재노출 파일 3개). `run.sh` 추가(프로젝트 .venv만, LF·실행 권한, Git Bash로 GUI 실행 확인). SERVICE.md 최종 상태 대조(모델, GUI·API, 출력 검증, 참고 섹션, 확인 필요, 실패 경로 규칙, 1-c 옵션, round5 결과, 남은 한계).

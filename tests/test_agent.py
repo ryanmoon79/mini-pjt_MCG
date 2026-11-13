@@ -499,7 +499,7 @@ def test_run_ruff_follows_repo_ruff_setting(tmp_path):
     """저장소 ruff 설정이 있으면 그 줄 길이 기준으로 검사한다 (04번 diff 9행 = 95칸)."""
     from src.diff import parser as dp
     from src.shared.review_settings import load_review_settings
-    from src.tools.ruff import run_ruff
+    from src.toolkit.ruff import run_ruff
 
     text = (config.EVAL_DIFFS_DIR / "04_long_line.diff").read_text(encoding="utf-8")
     (file,) = dp.split_python(dp.parse_diff(text))[0]
@@ -1305,7 +1305,7 @@ def test_ruff_fixable_style_uses_ruff_fix_and_fixed_message():
     """I001 지적의 고치는 방법은 ruff 수정 결과, 어긋난 설명은 고정 문장으로 (⑧)."""
     from src.diff import parser as dp
     from src.review.ruff_fixes import FIXABLE, apply_ruff_fixes
-    from src.tools.ruff import run_ruff
+    from src.toolkit.ruff import run_ruff
 
     text = (config.EVAL_DIFFS_DIR / "06_naming_imports.diff").read_text(
         encoding="utf-8"
@@ -1331,7 +1331,7 @@ def test_ruff_ignores_citereview_own_modules_without_repo_dir():
     """저장소 폴더가 없으면 ruff를 중립 폴더에서 돌려 CiteReview 자신의 `src/`가
     import 정렬 판정에 끼지 않는다 (f8e0c93 재리뷰의 가짜 I001)."""
     from src.guardrails.input import check_input
-    from src.tools.ruff import run_ruff
+    from src.toolkit.ruff import run_ruff
 
     body = (
         "+def test_x():\n"

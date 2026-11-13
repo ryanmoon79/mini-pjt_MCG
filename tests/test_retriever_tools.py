@@ -14,7 +14,7 @@ from src.diff import parser as dp
 from src.evidence.corpus import load_corpus
 from src.evidence.search import build_retriever
 from src.shared import config
-from src.tools.agent_tools import ToolLog, build_tools
+from src.toolkit.agent_tools import ToolLog, build_tools
 
 PEP8_IDS = {
     "PEP8-maximum-line-length",

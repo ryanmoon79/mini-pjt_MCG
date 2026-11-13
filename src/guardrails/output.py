@@ -190,7 +190,7 @@ def _pep8_to_ruff() -> dict[str, tuple[str, ...]]:
 
     `N8xx`(이름 규칙)는 코드 접두어 "N8"로 맞춥니다.
     """
-    from src.tools.ruff import RUFF_TO_PEP8
+    from src.toolkit.ruff import RUFF_TO_PEP8
 
     table: dict[str, list[str]] = {}
     for code, section in RUFF_TO_PEP8.items():
@@ -204,7 +204,7 @@ def ruff_truth(py_files: list[dp.FileDiff]) -> set[tuple[str, int, str]]:
 
     리뷰어가 `ruff_check`를 불렀는지와 관계없이 같은 기준을 쓰려고 직접 계산합니다.
     """
-    from src.tools.ruff import run_ruff
+    from src.toolkit.ruff import run_ruff
 
     return {(r["file"], r["line"], r["code"]) for f in py_files for r in run_ruff(f)}
 
@@ -302,7 +302,7 @@ def verify_syntax_claims(
     """
     import ast
 
-    from src.tools.ruff import reconstruct_file
+    from src.toolkit.ruff import reconstruct_file
 
     by_path = {f.path: f for f in py_files}
     kept, dropped, unverified = [], [], []
@@ -883,7 +883,7 @@ def verify_name_claims(
     Returns:
         (유지할 지적, 제거 기록 `name_claim_dropped`, 판단 필요 기록 `name_claim_kept`)
     """
-    from src.tools.ruff import reconstruct_file
+    from src.toolkit.ruff import reconstruct_file
 
     by_path = {f.path: f for f in py_files}
     kept, dropped, unsure = [], [], []

@@ -426,7 +426,7 @@ def ruff_record(trace: list[dict], diff_text: str) -> dict:
     부른 파일만 넣습니다 (인자가 비었으면 도구와 같이 모든 .py 파일).
     run_ragas.py가 faithfulness contexts로 씁니다.
     """
-    from src.tools.ruff import run_ruff
+    from src.toolkit.ruff import run_ruff
 
     by_path = {f.path: f for f in check_input(diff_text).py_files}
     called: list[str] = []

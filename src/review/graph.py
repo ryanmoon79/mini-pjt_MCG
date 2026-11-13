@@ -81,10 +81,10 @@ from src.review.summary import (
 )
 from src.review.team import BUG, STYLE, Plan, plan_reviews, run_review_team
 from src.shared import config, review_settings
-from src.tools import github
-from src.tools.agent_tools import ToolLog, build_tools, chunk_to_dict
-from src.tools.github import github_post_comment
-from src.tools.ruff import run_ruff
+from src.toolkit import github
+from src.toolkit.agent_tools import ToolLog, build_tools, chunk_to_dict
+from src.toolkit.github import github_post_comment
+from src.toolkit.ruff import run_ruff
 
 ROLES = ("supervisor", BUG, STYLE, "synthesizer")
 

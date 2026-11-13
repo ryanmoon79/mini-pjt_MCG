@@ -41,12 +41,12 @@
 | 체크포인터 | `InMemorySaver` (`langgraph.checkpoint.memory`) — HITL을 같은 프로세스 안에서 재개하는 용도. 파일로 남기지 않음 (3-1번 `--batch`) |
 | 에이전트 | `langchain.agents.create_agent` + 미들웨어(`langchain.agents.middleware`) |
 | 멀티 에이전트 | `langgraph_supervisor.create_supervisor` + 리뷰어 2종(버그·스타일). 호환 문제 시 대체안은 4번 |
-| 정적 분석 | `ruff` 0.17 (`requirements.txt`). 기본 규칙(`E4`,`E7`,`E9`,`F`)만으로는 줄 길이·이름·import 순서를 못 잡으므로 `select = ["E", "W", "F", "I", "N"]`, `line-length = 88`로 설정. `E1xx`·`E2xx`·`E3xx`는 preview 규칙이라 쓰지 않음(`uvx`로 임시 실행한 ruff 0.17.4에서 확인). 에이전트 도구와 평가 diff 작성이 **같은 설정 파일(`ruff.toml`)**을 씀. 입력이 diff뿐이라 리뷰 대상 저장소의 ruff 설정은 읽지 않고 항상 이 설정을 씀. **저장소 폴더가 없으면 ruff를 `ruff.toml` 사본만 둔 빈 임시 폴더에서 돌리고 diff 경로의 최상위 폴더를 `known-first-party`로 지정**합니다(`src/tools/ruff.py`의 `_ruff_base`, round4 이후) — CiteReview 자신의 `src/` 구조가 import 정렬(I001) 판정을 바꾸지 않게. `ruff_check`는 **변경된 줄의 위반만** 돌려주고, 파일 전체가 보이지 않는 diff에서는 `F`·`I` 규칙을 뺌(가짜 위반 방지) |
+| 정적 분석 | `ruff` 0.17 (`requirements.txt`). 기본 규칙(`E4`,`E7`,`E9`,`F`)만으로는 줄 길이·이름·import 순서를 못 잡으므로 `select = ["E", "W", "F", "I", "N"]`, `line-length = 88`로 설정. `E1xx`·`E2xx`·`E3xx`는 preview 규칙이라 쓰지 않음(`uvx`로 임시 실행한 ruff 0.17.4에서 확인). 에이전트 도구와 평가 diff 작성이 **같은 설정 파일(`ruff.toml`)**을 씀. 입력이 diff뿐이라 리뷰 대상 저장소의 ruff 설정은 읽지 않고 항상 이 설정을 씀. **저장소 폴더가 없으면 ruff를 `ruff.toml` 사본만 둔 빈 임시 폴더에서 돌리고 diff 경로의 최상위 폴더를 `known-first-party`로 지정**합니다(`src/toolkit/ruff.py`의 `_ruff_base`, round4 이후) — CiteReview 자신의 `src/` 구조가 import 정렬(I001) 판정을 바꾸지 않게. `ruff_check`는 **변경된 줄의 위반만** 돌려주고, 파일 전체가 보이지 않는 diff에서는 `F`·`I` 규칙을 뺌(가짜 위반 방지) |
 | 외부 연동 | 게시(`github_post_comment`)는 **dry-run**(콘솔 출력), 허용 목록은 `.env`의 `CITEREVIEW_ALLOWED_POST_REPOS`(쉼표 구분 `owner/repo`). PR 조회(`github_get_pr`)는 **선택 작업(C1)**으로 `langchain_mcp_adapters.client.MultiServerMCPClient` + GitHub 공식 MCP 서버(`github/github-mcp-server`, stdio)로 붙이고, 토큰은 `.env`의 `GITHUB_PERSONAL_ACCESS_TOKEN`(읽기 권한만) |
 | 평가 | RAGAS 4개 지표 (`faithfulness`, `answer_relevancy`, `context_precision`, `context_recall`). `ragas` 0.4.3은 **평가 전용 환경 `.venv-eval`(Python 3.12, `requirements-eval.txt`)**에 설치 — 과정 venv(Python 3.14)에서는 의존성 `scikit-network` 빌드가 실패함. `answer_relevancy`의 임베딩은 `amazon.titan-embed-text-v2:0` |
 | RAGAS 판정 LLM | `us.amazon.nova-pro-v1:0` (Bedrock, `us-east-1`) — **평가 전용 예외**. 리뷰 모델과 다른 모델로 자기 평가 편향을 줄임. 에이전트 본체에는 쓰지 않음 |
 | 관측 | `run_query`가 돌려주는 `trace`(결정적 이벤트 목록, `src/observability/trace.py`)와 평가 실행 기록 `evaluation/runs/<실행ID>/<케이스>/trace.json`. `.env`에 `LANGSMITH_TRACING=true`·`LANGSMITH_API_KEY`가 있으면 LangChain이 LangSmith로도 보냄(연결 확인함: 2차 평가의 그래프 실행이 기록됨). 토큰은 `run_query`가 trace `usage` 이벤트로 남김: 모델을 부르는 쪽이 config metadata `citereview_role`에 역할 이름(리뷰어, `:finalize` 보완 단계, `suggestion_fix`, `synthesize`, `synthesize:retry`)을 넣고, `src/observability/usage.py`의 `record_usage`가 역할별 호출 수·입력·출력 토큰을 모음. 표시 없는 호출은 "기타" |
-| 인터페이스 | **CLI 기본 + 시연용 로컬 웹 GUI**(`http.server`, 표준 라이브러리만, `src/interfaces/gui_server.py`). 강사 확인: CLI로 충분하고 개발·테스트에는 GUI가 편함. 핵심 함수는 `answer`·`contexts`·`trace`를 돌려줌 (3-1번). 배포용 웹 서비스와 `POST /query` 서버는 확장 시 |
+| 인터페이스 | **CLI 기본 + 시연용 로컬 웹 GUI**(`http.server`, 표준 라이브러리만, `src/interfaces/gui_server.py`). 강사 확인: CLI로 충분하고 개발·테스트에는 GUI가 편함. 핵심 함수는 `answer`·`contexts`·`trace`를 돌려줌 (3-1번). 로컬 API `POST /query`(`src/interfaces/api_server.py`, 표준 라이브러리, 127.0.0.1, 승인 대기에서 멈춤). Docker·배포용 웹 서비스는 미제공 |
 | GUI 디자인 | Hallmark 스킬(https://github.com/nutlope/hallmark), **이 프로젝트에만 설치**(`-g` 없이 설치함, 디자인 적용은 TASKS G2). 결과물은 독립 HTML/CSS라 `src/interfaces/gui_server.py`가 그대로 제공 |
 | 제출 | 과제 저장소가 아닌 별도 GitHub 저장소 `mini-pjt_{본인이름}` (강사 확인), 제출 커밋 첫 줄은 `[제출] MiniPJT` |
 
@@ -54,12 +54,13 @@
 
 ## 2. 폴더 구조
 
-> **변경 기록 (2026-11-12): 제출 이후 `src/`를 도메인 구조로 전환했습니다.** 제출본(평평한 `src/*.py`, 과정 제출 규약의 형식)은 태그 `submission-round2`(커밋 `7d2400c`)에 그대로 보존됩니다. 이유: 제출 뒤 기능이 늘면서 `agent.py`(1,036줄)·`gui_server.py`(926줄)·`guardrails.py`(876줄)에 여러 역할이 섞여 "파일 하나에 한 가지 역할" 원칙이 흐려졌기 때문입니다. 동작은 바꾸지 않은 순수 구조 변경입니다(가짜 모델 평가 22건 출력이 전후 바이트 단위로 같음, 테스트·ruff 통과). `data/`·`evaluation/` 형식은 그대로입니다. 과정 규약의 진입점 경로(`from src.agent import run_query`, `src.retriever`, `src.tools`)는 재노출로 계속 동작합니다.
+> **변경 기록 (2026-11-12): 제출 이후 `src/`를 도메인 구조로 전환했습니다.** 제출본(평평한 `src/*.py`, 과정 제출 규약의 형식)은 태그 `submission-round2`(커밋 `7d2400c`)에 그대로 보존됩니다. 이유: 제출 뒤 기능이 늘면서 `agent.py`(1,036줄)·`gui_server.py`(926줄)·`guardrails.py`(876줄)에 여러 역할이 섞여 "파일 하나에 한 가지 역할" 원칙이 흐려졌기 때문입니다. 동작은 바꾸지 않은 순수 구조 변경입니다(가짜 모델 평가 22건 출력이 전후 바이트 단위로 같음, 테스트·ruff 통과). `data/`·`evaluation/` 형식은 그대로입니다. 과정 규약의 진입점 경로(`from src.agent import run_query`, `src.retriever`, `src.tools`)는 재노출 파일(`src/agent.py`·`src/retriever.py`·`src/tools.py`)로 계속 동작합니다. 2026-11-13에는 공식 제출 구조의 `src/tools.py` 파일을 두려고 도구 패키지 이름을 `src/tools/`에서 `src/toolkit/`으로 바꿨습니다(가짜 모델 22건 출력이 전후 바이트 단위로 같음).
 
 ```
 mini-pjt_{본인이름}/
 ├── src/                        # 소스코드 — 리뷰 흐름의 도메인별 폴더 (층 번호는 아래 "배치 규칙")
 │   ├── agent.py                # 제출 규약 진입점: run_query·resume_review·build_graph 재노출 → review/graph.py
+│   ├── tools.py                # 제출 규약 진입점: build_tools·run_ruff·github_post_comment 등 재노출 → toolkit/
 │   ├── retriever.py            # 제출 규약 진입점: build_retriever·load_corpus 등 재노출 → evidence/
 │   ├── shared/                 # [층 0] 여러 도메인이 쓰는 설정
 │   │   ├── config.py           #   모델·리전, .env, LLM·임베딩 생성(get_llm·get_embeddings), 경로·Chroma 상수
@@ -75,7 +76,7 @@ mini-pjt_{본인이름}/
 │   ├── evidence/               # [층 2] 근거 코퍼스와 검색 (RAG)
 │   │   ├── corpus.py           #   PEP 8·deprecated 매핑표 청크(rule_id·title·source 메타데이터)
 │   │   └── search.py           #   하이브리드 검색(BM25 + Chroma 벡터, RRF), build_retriever
-│   ├── tools/                  # [층 2] 리뷰어 도구와 외부 연동 (__init__.py가 기존 src.tools API 재노출)
+│   ├── toolkit/                # [층 2] 리뷰어 도구와 외부 연동 (2026-11-13 tools/에서 이름 변경 — 규약 파일 src/tools.py와 겹치지 않게)
 │   │   ├── ruff.py             #   ruff 검사(변경된 줄만), ruff 코드 → PEP 8 연결표
 │   │   ├── agent_tools.py      #   리뷰어가 고르는 도구 ruff_check·search_evidence, 도구 호출 기록(ToolLog)
 │   │   └── github.py           #   github_post_comment(dry-run), 게시 허용 목록 (github_get_pr은 선택 작업 C1, 미구현)
@@ -98,7 +99,8 @@ mini-pjt_{본인이름}/
 │   └── interfaces/             # [층 5] 사용자 인터페이스
 │       ├── cli.py              #   python -m src.interfaces.cli review <diff> (--batch, --verbose, --repo, --repo-dir,
 │       │                       #   --max-lines, --review-model)
-│       └── gui_server.py       #   python -m src.interfaces.gui_server — 시연용 로컬 웹 GUI (6번 "GUI")
+│       ├── gui_server.py       #   python -m src.interfaces.gui_server — 시연용 로컬 웹 GUI (6번 "GUI")
+│       └── api_server.py       #   python -m src.interfaces.api_server — 로컬 API POST /query (run_query 결과 그대로)
 ├── data/                       # 사용한 문서·데이터
 │   ├── corpus/                 # RAG 원천 문서
 │   │   ├── pep8.md             # 일부 섹션, 섹션마다 rule_id: PEP8-<섹션명>
@@ -135,7 +137,7 @@ mini-pjt_{본인이름}/
 ├── .gitignore                  # .env, chroma_db/, *.sqlite, evaluation/runs/, .venv-eval/ 등
 ├── .env                        # 비밀값 — 커밋 금지
 ├── run.bat                     # 더블클릭으로 GUI 서버 실행 + 브라우저 열기
-└── run.sh                      # (선택) 실행 스크립트
+└── run.sh                      # 맥·리눅스·Git Bash용 GUI 실행 (프로젝트 .venv만, 없으면 안내 후 종료, LF·실행 권한)
 ```
 
 > `tests/`와 `docs/`는 제출 구조의 `...`에 해당하는 추가 폴더로 둡니다(가정). 허용되지 않으면 `evaluation/tests/`, `evaluation/plan.md`로 옮깁니다.
@@ -150,14 +152,14 @@ mini-pjt_{본인이름}/
 5  interfaces   CLI·GUI (사용자가 실행하는 진입점)
 4  review       리뷰 흐름: 그래프·planner·리뷰어 팀·종합·요약 규칙·프롬프트
 3  guardrails   입력·출력 검사          report   Review → 터미널 Markdown
-2  evidence     근거 코퍼스·검색        tools    ruff·리뷰어 도구·GitHub 게시
+2  evidence     근거 코퍼스·검색        toolkit  ruff·리뷰어 도구·GitHub 게시
 1  diff         diff 파싱    observability   trace·토큰    findings   지적 데이터 모델
 0  shared       LLM·임베딩 클라이언트, 모델·리전, .env, 경로, 리뷰 한 건의 기준
 ```
-- `src/agent.py`·`src/retriever.py`는 과정 규약 경로를 지키는 **재노출 파일**이라 검사 대상이 아닙니다. 새 코드를 여기에 쓰지 않습니다.
+- `src/agent.py`·`src/tools.py`·`src/retriever.py`는 과정 규약 경로를 지키는 **재노출 파일**이라 검사 대상이 아닙니다. 새 코드를 여기에 쓰지 않습니다.
 
 **새 파일은 어디에**
-- 그 코드가 쓰이는 **리뷰 단계의 도메인**에 둡니다(입력·출력 검사 → `guardrails/`, 근거 검색 → `evidence/`, 리뷰어가 부르는 도구·외부 연동 → `tools/`, 그래프 노드·리뷰어·종합 → `review/`, 화면 → `report/`·`interfaces/`).
+- 그 코드가 쓰이는 **리뷰 단계의 도메인**에 둡니다(입력·출력 검사 → `guardrails/`, 근거 검색 → `evidence/`, 리뷰어가 부르는 도구·외부 연동 → `toolkit/`, 그래프 노드·리뷰어·종합 → `review/`, 화면 → `report/`·`interfaces/`).
 - 각 도메인 안에서: **실행 로직**은 역할 이름 파일(`input.py`, `graph.py` …), **LLM 프롬프트 템플릿**은 `prompts.py`, **입출력 스키마**는 `schema.py`.
 - **여러 도메인이 함께 쓰는 데이터 모델**(지적·근거·리뷰)은 `findings/`에 둡니다. 한 도메인만 쓰는 스키마는 그 도메인의 `schema.py`.
 - **`shared/`에 넣는 기준:** 두 개 이상의 도메인이 쓰는 **LLM 클라이언트·모델·리전·환경·경로 설정**, **리뷰 한 건의 기준**(`review_settings.py`), 도메인 지식이 없는 **순수 유틸**만. 한 도메인만 쓰거나 도메인 규칙이 들어 있으면 그 도메인에 둡니다.
@@ -199,7 +201,7 @@ mini-pjt_{본인이름}/
 
 ## 3-1. 주고받는 형식 (핵심 함수)
 
-기본 인터페이스는 CLI이고, 결과 형식은 과정 공통 규약(`answer`·`contexts`·`trace`)을 따릅니다. 1·2차 평가와 RAGAS가 이 값을 그대로 씁니다. **시연용 GUI(`src/interfaces/gui_server.py`)도 `run_query`·`resume_review`만 호출합니다** (에이전트 경로는 CLI와 같음). `POST /query`가 필요해지면 확장 시 이 함수를 감싸는 서버 파일을 덧붙입니다.
+기본 인터페이스는 CLI이고, 결과 형식은 과정 공통 규약(`answer`·`contexts`·`trace`)을 따릅니다. 1·2차 평가와 RAGAS가 이 값을 그대로 씁니다. **시연용 GUI(`src/interfaces/gui_server.py`)도 `run_query`·`resume_review`만 호출합니다** (에이전트 경로는 CLI와 같음). 로컬 API(`src/interfaces/api_server.py`)의 `POST /query`도 이 함수를 그대로 감쌉니다(재개·게시 없음).
 
 ```python
 # src/review/graph.py (과정 규약 경로 src/agent.py로 재노출)

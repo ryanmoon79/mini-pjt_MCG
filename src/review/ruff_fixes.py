@@ -13,7 +13,7 @@ import re
 
 from src.diff import parser as dp
 from src.findings.schema import Finding
-from src.tools.ruff import RUFF_TO_PEP8, ruff_fix_blocks
+from src.toolkit.ruff import RUFF_TO_PEP8, ruff_fix_blocks
 
 # 자동 수정 가능 규칙 → (고정 설명 문장, 설명 문장에 있어야 할 낱말 묶음들)
 # 낱말 묶음마다 하나 이상이 설명에 있어야 "ruff 결과와 맞는 설명"으로 봅니다.

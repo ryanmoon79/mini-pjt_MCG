@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from langchain_core.tools import tool
 
 from src.diff import parser as dp
-from src.tools.ruff import run_ruff
+from src.toolkit.ruff import run_ruff
 
 
 @dataclass
