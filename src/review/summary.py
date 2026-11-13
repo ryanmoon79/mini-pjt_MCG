@@ -42,6 +42,21 @@ _HANGUL_RE = re.compile(r"[가-힣]")  # 요약 LLM 줄은 한국어 (gpt-oss는
 
 
 _LINE_REF_RE = re.compile(r"(\d+)\s*(?:번\s*줄|번째\s*줄|행)")
+_PY_FILE_RE = re.compile(r"[\w./-]*?([\w-]+\.py)\b")
+
+
+def _file_line_refs(text: str) -> list[tuple[str, int]]:
+    """문장에서 (파일 이름, 줄 번호) 쌍.
+
+    파일 이름 뒤부터 다음 파일 이름 전까지의 줄 번호를 그 파일의 줄로 봅니다.
+    예: "a.py 16번 줄, b.py 16번 줄" → [("a.py", 16), ("b.py", 16)]
+    """
+    marks = list(_PY_FILE_RE.finditer(text))
+    out = []
+    for i, m in enumerate(marks):
+        end = marks[i + 1].start() if i + 1 < len(marks) else len(text)
+        out += [(m.group(1), int(n)) for n in _LINE_REF_RE.findall(text[m.end() : end])]
+    return out
 
 
 def _must(f: Finding) -> bool:
@@ -148,6 +163,11 @@ def action_violation(
     refs = {int(n) for n in _LINE_REF_RE.findall(text)}
     if any(n not in lines for n in refs):
         return "지적 목록에 없는 줄 번호"
+    # 파일과 줄을 함께 말하면 그 (파일, 줄)이 지적 목록에 있어야 함
+    # (cd65c0f: 지적은 guard_v1.py 16행뿐인데 "submission.py 16번 줄"도 말함)
+    have = {(f.file.rsplit("/", 1)[-1], f.line) for f in findings}
+    if any(pair not in have for pair in _file_line_refs(text)):
+        return "지적 목록에 없는 파일·줄"
     # 판단 필요 지적만 있는 줄을 말하면 "확인"으로만 (단정형 "~하므로 고치세요" 금지)
     sure = {f.line for f in findings if not is_unsure(f)}
     unsure = {f.line for f in findings if is_unsure(f)} - sure

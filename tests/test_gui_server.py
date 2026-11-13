@@ -120,3 +120,14 @@ def test_job_progress_copies_node_events_from_review_thread(monkeypatch, tmp_pat
     assert all(step["done"] for step in view["steps"]), view["steps"]
     names = [e["name"] for e in gui_server.JOBS[job_id]["events"]]
     assert names[0] == "input_guardrail" and "synthesize" in names
+
+
+def test_second_gui_server_on_same_port_refuses_and_explains(capsys):
+    """이미 쓰는 포트면 두 번째 GUI 서버는 시작하지 않고 안내 후 1을 돌려준다."""
+    first = gui_server.ExclusiveServer(("127.0.0.1", 0), gui_server.Handler)
+    port = first.server_address[1]
+    try:
+        assert gui_server.main(["--no-browser", "--port", str(port)]) == 1
+    finally:
+        first.server_close()
+    assert gui_server.ALREADY_RUNNING in capsys.readouterr().out

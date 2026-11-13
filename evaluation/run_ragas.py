@@ -193,6 +193,36 @@ def mean(per_case: dict[str, dict], name: str) -> dict:
     }
 
 
+def merge_ids(old: list, new: list) -> list:
+    """대상 케이스 목록 합치기 (기존 순서 유지, 새 케이스는 뒤에)."""
+    return list(old) + [c for c in new if c not in old]
+
+
+def apply_scores(
+    report: dict, metric: str, list_key: str | None, target_ids: list, res: dict
+) -> None:
+    """한 지표의 이번 결과를 기존 결과에 **병합**합니다 (부분 재실행 대응).
+
+    - 이번에 돌린 케이스(`target_ids`)는 이전 값을 지우고 이번 값으로 바꿉니다
+      (이번에도 판정이 실패하면 None = 미채점).
+    - 이번에 돌리지 않은 케이스의 값과 대상 목록은 그대로 둡니다.
+    - 평균은 이번 결과만이 아니라 **합친 대상 전체의 케이스별 값**으로 다시 냅니다.
+    `--cases` 없이 전체를 돌리면 대상이 전부 바뀌므로 이전 동작과 같습니다.
+    """
+    per_case = report.setdefault("per_case", {})
+    for cid in target_ids:
+        per_case.setdefault(cid, {})[metric] = None
+    for cid, vals in res.items():
+        if metric in vals:
+            per_case.setdefault(cid, {})[metric] = vals[metric]
+    if list_key:
+        report[list_key] = merge_ids(report.get(list_key, []), target_ids)
+        targets = report[list_key]
+    else:
+        targets = list(target_ids)
+    report[metric] = mean({c: per_case.get(c, {}) for c in targets}, metric)
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="CiteReview RAGAS 4개 지표")
     parser.add_argument("run_id", help="evaluation/runs/ 아래 실행 ID")
@@ -200,7 +230,8 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--metrics",
         default=",".join(ALL_METRICS),
-        help="다시 계산할 지표 (쉼표 구분). 나머지는 기존 ragas.json 값 유지",
+        help="다시 계산할 지표 (쉼표 구분). 나머지는 기존 ragas.json 값 유지. "
+        "--cases와 함께 쓰면 그 케이스만 다시 계산해 기존 결과에 병합",
     )
     parser.add_argument(
         "--faithfulness-contexts",
@@ -228,7 +259,7 @@ def main(argv=None) -> int:
         json.loads(out_path.read_text(encoding="utf-8")) if out_path.exists() else {}
     )
     report.update({"run_id": args.run_id, "judge_model": JUDGE_MODEL_ID})
-    per_case: dict = report.get("per_case", {})
+    report.setdefault("per_case", {})
     llm, emb = build_judges()
 
     # ① faithfulness: 리뷰가 끝난 케이스 (거절 응답 제외).
@@ -238,28 +269,37 @@ def main(argv=None) -> int:
         key = "full_contexts" if full else "retrieved_contexts"
         targets = [s for s in samples if s["reviewed"] and s[key]]
         res = score(targets, [faithfulness], llm, emb, ctx_key=key) if targets else {}
-        for cid, vals in res.items():
-            per_case.setdefault(cid, {}).update(vals)
         report["faithfulness_contexts"] = args.faithfulness_contexts
-        report["faithfulness_targets"] = [s["id"] for s in targets]
-        report["faithfulness"] = mean(res, "faithfulness")
+        apply_scores(
+            report,
+            "faithfulness",
+            "faithfulness_targets",
+            [s["id"] for s in targets],
+            res,
+        )
 
     # ② answer_relevancy: 검색 청크가 있는 케이스 (contexts를 쓰지 않는 지표)
     first = [s for s in samples if s["retrieved_contexts"]]
     if "answer_relevancy" in wanted_metrics:
         res = score(first, [answer_relevancy], llm, emb) if first else {}
-        for cid, vals in res.items():
-            per_case.setdefault(cid, {}).update(vals)
-        report["first_targets"] = [s["id"] for s in first]
-        report["answer_relevancy"] = mean(res, "answer_relevancy")
+        apply_scores(
+            report, "answer_relevancy", "first_targets", [s["id"] for s in first], res
+        )
 
     # ③ context_precision·context_recall: reference가 있는 케이스, 검색 청크만
     second = [s for s in samples if s["reference"] and s["retrieved_contexts"]]
-    report["second_targets"] = [s["id"] for s in second]
-    report["second_no_contexts"] = [
-        s["id"] for s in samples if s["reference"] and not s["retrieved_contexts"]
-    ]
-    report["reference_ranks"] = reference_ranks(samples)  # LLM 없음
+    # 부분 재실행이면 대상 목록·정답 순위도 기존 결과에 합침 (덮어쓰지 않음)
+    report["second_targets"] = merge_ids(
+        report.get("second_targets", []), [s["id"] for s in second]
+    )
+    report["second_no_contexts"] = merge_ids(
+        report.get("second_no_contexts", []),
+        [s["id"] for s in samples if s["reference"] and not s["retrieved_contexts"]],
+    )
+    report["reference_ranks"] = {
+        **report.get("reference_ranks", {}),
+        **reference_ranks(samples),  # LLM 없음
+    }
     ctx_metrics = [
         m for m in (context_precision, context_recall) if m.name in wanted_metrics
     ]
@@ -267,15 +307,13 @@ def main(argv=None) -> int:
         try:
             res = score(second, ctx_metrics, llm, emb)
             for m in ctx_metrics:
-                report[m.name] = mean(res, m.name)
+                apply_scores(
+                    report, m.name, "second_targets", [s["id"] for s in second], res
+                )
         except Exception as exc:  # 결과 기록: 미측정 + 사유
             reason = f"{type(exc).__name__}: {str(exc)[:200]}"
-            res = {}
             for m in ctx_metrics:
                 report[m.name] = {"mean": None, "unmeasured": reason}
-        for cid, vals in res.items():
-            per_case.setdefault(cid, {}).update(vals)
-    report["per_case"] = per_case
 
     (run_dir / "ragas.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"

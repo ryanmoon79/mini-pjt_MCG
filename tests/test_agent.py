@@ -1636,3 +1636,69 @@ def test_blocked_post_message_uses_right_topic_particle():
     assert _topic("team/app1") == "team/app1은"
     assert _topic("owner/repo2") == "owner/repo2는"
     assert _topic("(저장소 없음)") == "(저장소 없음)은"
+
+
+def test_run_ragas_partial_rerun_merges_into_existing_report():
+    """`run_ragas.py --cases` 부분 재실행: 기존 결과에 병합하고 평균은 전체로 다시 낸다.
+
+    round5에서 16·19번만 다시 돌렸을 때 요약 칸과 평균이 그 두 케이스 값으로
+    덮어써지던 문제. 다시 실패한 케이스(6번)는 None(미채점)으로 남는다.
+    """
+    import importlib.util
+
+    path = config.ROOT_DIR / "evaluation" / "run_ragas.py"
+    spec = importlib.util.spec_from_file_location("run_ragas_for_test", path)
+    rr = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rr)  # ragas는 main() 안에서만 import
+
+    report = {
+        "faithfulness_targets": ["1", "6", "16", "19"],
+        "per_case": {
+            "1": {"faithfulness": 0.5, "answer_relevancy": 0.3},
+            "6": {"faithfulness": None},
+            "16": {"faithfulness": None},
+            "19": {"faithfulness": None},
+        },
+        "faithfulness": {"mean": 0.5, "scored": 1, "targets": 4},
+    }
+    rerun = {
+        "6": {"faithfulness": None},
+        "16": {"faithfulness": 0.8},
+        "19": {"faithfulness": 1.0},
+    }
+    rr.apply_scores(
+        report, "faithfulness", "faithfulness_targets", ["6", "16", "19"], rerun
+    )
+    assert report["faithfulness_targets"] == ["1", "6", "16", "19"]  # 목록 유지
+    assert report["faithfulness"] == {
+        "mean": round((0.5 + 0.8 + 1.0) / 3, 4),
+        "scored": 3,
+        "targets": 4,
+    }
+    assert report["per_case"]["1"] == {"faithfulness": 0.5, "answer_relevancy": 0.3}
+    assert report["per_case"]["6"]["faithfulness"] is None
+
+
+def test_action_line_must_name_file_and_line_from_findings():
+    """요약 5줄이 파일과 줄을 함께 말하면 그 (파일, 줄)이 지적 목록에 있어야 한다.
+
+    cd65c0f 리뷰: 지적은 guard_v1.py 16행뿐인데 "submission.py 16번 줄"도 말함.
+    파일 없이 줄 번호만 말하는 기존 형식은 기존 규칙대로 본다.
+    """
+    from src.findings.schema import Finding
+    from src.review.summary import action_violation
+
+    finding = Finding(
+        issue_type="style",
+        file="day05/practice/guard_v1.py",
+        line=16,
+        severity="low",
+        message="쓰지 않는 import",
+        evidence=[{"type": "tool", "source": "ruff", "rule_id": "ruff:F401"}],
+        suggestion="s",
+    )
+    both = "guard_v1.py 16번 줄, submission.py 16번 줄의 import를 삭제하세요."
+    assert action_violation(both, [finding]) == "지적 목록에 없는 파일·줄"
+    ok = "day05/practice/guard_v1.py 16행의 import를 삭제하세요."
+    assert action_violation(ok, [finding]) is None
+    assert action_violation("16행의 import를 삭제하세요.", [finding]) is None

@@ -363,6 +363,21 @@ def eval_diffs() -> list[str]:
 # ── HTTP ─────────────────────────────────────────────────────────────
 
 
+class ExclusiveServer(ThreadingHTTPServer):
+    """이미 쓰는 포트면 시작에 실패하는 서버.
+
+    `ThreadingHTTPServer`는 주소 재사용(SO_REUSEADDR)을 켜는데, Windows에서는 이 때문에
+    같은 포트에 서버가 하나 더 떠서 어느 쪽이 요청을 받을지 정해지지 않습니다(round5
+    이후 cd65c0f 리뷰에서 수정 전 코드가 요청을 받은 일). 재사용을 꺼서 막습니다.
+    """
+
+    allow_reuse_address = False
+    daemon_threads = True
+
+
+ALREADY_RUNNING = "이미 실행 중인 CiteReview 서버가 있습니다. 기존 창을 쓰거나 종료 후 다시 실행하세요."
+
+
 class Handler(BaseHTTPRequestHandler):
     """화면(HTML)과 JSON API를 제공합니다."""
 
@@ -1008,9 +1023,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
+    try:  # 이미 쓰는 포트면 안내하고 끝냄 (두 서버가 같은 포트를 잡지 않게)
+        server = ExclusiveServer((HOST, args.port), Handler)
+    except OSError:
+        print(f"{ALREADY_RUNNING} (포트 {args.port})")
+        return 1
     config.load_env()
     _install_progress_hook()
-    server = ThreadingHTTPServer((HOST, args.port), Handler)
     url = f"http://{HOST}:{args.port}"
     print(f"CiteReview GUI: {url}  (Ctrl+C로 종료)")
     if not args.no_browser:
